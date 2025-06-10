@@ -1,0 +1,36 @@
+{
+  "name": "tunnel-proxy",
+  "version": "1.0.0",
+  "description": "Home Assistant内网穿透代理服务",
+  "main": "app.js",
+  "scripts": {
+    "start": "node app.js",
+    "dev": "cross-env NODE_ENV=development nodemon app.js"
+  },
+  "dependencies": {
+    "@koa/cors": "^4.0.0",
+    "axios": "^1.6.0",
+    "http-proxy": "^1.18.1",
+    "jsonwebtoken": "^9.0.2",
+    "koa": "^2.14.2",
+    "koa-bodyparser": "^4.4.1",
+    "koa-router": "^12.0.0",
+    "koa-static": "^5.0.0",
+    "ws": "^8.14.2"
+  },
+  "devDependencies": {
+    "cross-env": "^7.0.3",
+    "nodemon": "^3.1.10"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "keywords": [
+    "homeassistant",
+    "tunnel",
+    "proxy",
+    "addon"
+  ],
+  "author": "ruofeng <ruofeng@126.com>",
+  "license": "MIT"
+}

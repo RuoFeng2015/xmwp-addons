@@ -1,0 +1,428 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>内网穿透代理 - 管理界面</title>
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+
+    body {
+      font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .container {
+      background: white;
+      padding: 2rem;
+      border-radius: 10px;
+      box-shadow: 0 10px 30px rgba(0, 0, 0, 0.2);
+      width: 100%;
+      max-width: 500px;
+    }
+
+    .header {
+      text-align: center;
+      margin-bottom: 2rem;
+    }
+
+    .header h1 {
+      color: #333;
+      margin-bottom: 0.5rem;
+    }
+
+    .header p {
+      color: #666;
+      font-size: 0.9rem;
+    }
+
+    .status-card {
+      background: #f8f9fa;
+      padding: 1rem;
+      border-radius: 8px;
+      margin-bottom: 1rem;
+      border-left: 4px solid #28a745;
+    }
+
+    .status-card.error {
+      border-left-color: #dc3545;
+    }
+
+    .status-card.warning {
+      border-left-color: #ffc107;
+    }
+
+    .status-item {
+      display: flex;
+      justify-content: space-between;
+      margin-bottom: 0.5rem;
+    }
+
+    .status-item:last-child {
+      margin-bottom: 0;
+    }
+
+    .status-label {
+      font-weight: 500;
+      color: #555;
+    }
+
+    .status-value {
+      color: #333;
+    }
+
+    .status-value.success {
+      color: #28a745;
+    }
+
+    .status-value.error {
+      color: #dc3545;
+    }
+
+    .status-value.warning {
+      color: #ffc107;
+    }
+
+    .login-form {
+      display: none;
+    }
+
+    .login-form.show {
+      display: block;
+    }
+
+    .form-group {
+      margin-bottom: 1rem;
+    }
+
+    .form-group label {
+      display: block;
+      margin-bottom: 0.5rem;
+      color: #555;
+      font-weight: 500;
+    }
+
+    .form-group input {
+      width: 100%;
+      padding: 0.75rem;
+      border: 1px solid #ddd;
+      border-radius: 5px;
+      font-size: 1rem;
+    }
+
+    .form-group input:focus {
+      outline: none;
+      border-color: #667eea;
+      box-shadow: 0 0 0 2px rgba(102, 126, 234, 0.2);
+    }
+
+    .btn {
+      width: 100%;
+      padding: 0.75rem;
+      background: #667eea;
+      color: white;
+      border: none;
+      border-radius: 5px;
+      font-size: 1rem;
+      cursor: pointer;
+      transition: background 0.3s;
+    }
+
+    .btn:hover {
+      background: #5a6fd8;
+    }
+
+    .btn:disabled {
+      background: #ccc;
+      cursor: not-allowed;
+    }
+
+    .error-message {
+      color: #dc3545;
+      font-size: 0.9rem;
+      margin-top: 0.5rem;
+      display: none;
+    }
+
+    .error-message.show {
+      display: block;
+    }
+
+    .refresh-btn {
+      background: #28a745;
+      width: auto;
+      padding: 0.5rem 1rem;
+      margin-top: 1rem;
+      font-size: 0.9rem;
+    }
+
+    .refresh-btn:hover {
+      background: #218838;
+    }
+
+    .footer {
+      text-align: center;
+      margin-top: 2rem;
+      color: #666;
+      font-size: 0.8rem;
+    }
+  </style>
+</head>
+
+<body>
+  <div class="container">
+    <div class="header">
+      <h1>内网穿透代理</h1>
+      <p>Home Assistant 远程访问管理</p>
+    </div>
+
+    <!-- 登录表单 -->
+    <div id="loginForm" class="login-form show">
+      <form id="loginFormElement">
+        <div class="form-group">
+          <label for="username">用户名</label>
+          <input type="text" id="username" name="username" required>
+        </div>
+        <div class="form-group">
+          <label for="password">密码</label>
+          <input type="password" id="password" name="password" required>
+        </div>
+        <button type="submit" class="btn" id="loginBtn">登录</button>
+        <div id="loginError" class="error-message"></div>
+      </form>
+    </div>
+
+    <!-- 状态面板 -->
+    <div id="statusPanel" style="display: none;">
+      <div class="status-card" id="connectionStatus">
+        <div class="status-item">
+          <span class="status-label">连接状态:</span>
+          <span class="status-value" id="statusValue">检查中...</span>
+        </div>
+        <div class="status-item">
+          <span class="status-label">服务器地址:</span>
+          <span class="status-value" id="serverHost">-</span>
+        </div>
+        <div class="status-item">
+          <span class="status-label">客户端ID:</span>
+          <span class="status-value" id="clientId">-</span>
+        </div>
+        <div class="status-item">
+          <span class="status-label">活跃连接:</span>
+          <span class="status-value" id="activeConnections">0</span>
+        </div>
+        <div class="status-item">
+          <span class="status-label">运行时间:</span>
+          <span class="status-value" id="uptime">-</span>
+        </div>
+        <div class="status-item">
+          <span class="status-label">最后心跳:</span>
+          <span class="status-value" id="lastHeartbeat">-</span>
+        </div>
+      </div>
+
+      <button class="btn refresh-btn" id="refreshBtn">刷新状态</button>
+      <button class="btn" id="logoutBtn" style="margin-top: 0.5rem; background: #6c757d;">退出登录</button>
+    </div>
+
+    <div class="footer">
+      <p>© 2023 XMWP Addons - 内网穿透代理 v1.0.0</p>
+    </div>
+  </div>
+
+  <script>
+    class TunnelProxyManager {
+      constructor() {
+        this.token = localStorage.getItem('tunnel_proxy_token');
+        this.init();
+      }
+
+      init() {
+        this.bindEvents();
+
+        if (this.token) {
+          this.showStatusPanel();
+          this.loadStatus();
+        } else {
+          this.showLoginForm();
+        }
+      }
+
+      bindEvents() {
+        document.getElementById('loginFormElement').addEventListener('submit', (e) => {
+          e.preventDefault();
+          this.login();
+        });
+
+        document.getElementById('refreshBtn').addEventListener('click', () => {
+          this.loadStatus();
+        });
+
+        document.getElementById('logoutBtn').addEventListener('click', () => {
+          this.logout();
+        });
+      }
+
+      async login() {
+        const username = document.getElementById('username').value;
+        const password = document.getElementById('password').value;
+        const loginBtn = document.getElementById('loginBtn');
+        const errorElement = document.getElementById('loginError');
+
+        loginBtn.disabled = true;
+        loginBtn.textContent = '登录中...';
+        errorElement.classList.remove('show');
+
+        try {
+          const response = await fetch('/api/auth/login', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({ username, password })
+          });
+
+          const data = await response.json();
+
+          if (response.ok) {
+            this.token = data.token;
+            localStorage.setItem('tunnel_proxy_token', this.token);
+            this.showStatusPanel();
+            this.loadStatus();
+          } else {
+            errorElement.textContent = data.error || '登录失败';
+            errorElement.classList.add('show');
+          }
+        } catch (error) {
+          errorElement.textContent = '网络错误，请重试';
+          errorElement.classList.add('show');
+        } finally {
+          loginBtn.disabled = false;
+          loginBtn.textContent = '登录';
+        }
+      }
+
+      async loadStatus() {
+        try {
+          const response = await fetch('/api/status', {
+            headers: {
+              'Authorization': `Bearer ${this.token}`
+            }
+          });
+
+          if (response.status === 401) {
+            this.logout();
+            return;
+          }
+
+          const data = await response.json();
+          this.updateStatusDisplay(data);
+        } catch (error) {
+          console.error('加载状态失败:', error);
+        }
+      }
+
+      updateStatusDisplay(data) {
+        const statusCard = document.getElementById('connectionStatus');
+        const statusValue = document.getElementById('statusValue');
+
+        // 更新连接状态
+        statusValue.textContent = this.getStatusText(data.status);
+        statusValue.className = `status-value ${this.getStatusClass(data.status)}`;
+
+        // 更新状态卡片样式
+        statusCard.className = `status-card ${this.getCardClass(data.status)}`;
+
+        // 更新其他信息
+        document.getElementById('serverHost').textContent = `${data.server_host}:${data.server_port}`;
+        document.getElementById('clientId').textContent = data.client_id;
+        document.getElementById('activeConnections').textContent = data.active_connections;
+        document.getElementById('uptime').textContent = this.formatUptime(data.uptime);
+        document.getElementById('lastHeartbeat').textContent =
+          data.last_heartbeat ? this.formatTime(data.last_heartbeat) : '无';
+      }
+
+      getStatusText(status) {
+        const statusMap = {
+          'connected': '已连接',
+          'disconnected': '未连接',
+          'connecting': '连接中',
+          'error': '连接错误',
+          'auth_failed': '认证失败'
+        };
+        return statusMap[status] || status;
+      }
+
+      getStatusClass(status) {
+        const classMap = {
+          'connected': 'success',
+          'disconnected': 'error',
+          'connecting': 'warning',
+          'error': 'error',
+          'auth_failed': 'error'
+        };
+        return classMap[status] || '';
+      }
+
+      getCardClass(status) {
+        const classMap = {
+          'connected': '',
+          'disconnected': 'error',
+          'connecting': 'warning',
+          'error': 'error',
+          'auth_failed': 'error'
+        };
+        return classMap[status] || '';
+      }
+
+      formatUptime(seconds) {
+        const hours = Math.floor(seconds / 3600);
+        const minutes = Math.floor((seconds % 3600) / 60);
+        return `${hours}小时${minutes}分钟`;
+      }
+
+      formatTime(timestamp) {
+        return new Date(timestamp).toLocaleString('zh-CN');
+      }
+
+      showLoginForm() {
+        document.getElementById('loginForm').style.display = 'block';
+        document.getElementById('statusPanel').style.display = 'none';
+      }
+
+      showStatusPanel() {
+        document.getElementById('loginForm').style.display = 'none';
+        document.getElementById('statusPanel').style.display = 'block';
+      }
+
+      logout() {
+        this.token = null;
+        localStorage.removeItem('tunnel_proxy_token');
+        this.showLoginForm();
+        document.getElementById('loginFormElement').reset();
+      }
+    }
+
+    // 初始化应用
+    new TunnelProxyManager();
+
+    // 自动刷新状态
+    setInterval(() => {
+      const manager = new TunnelProxyManager();
+      if (manager.token && document.getElementById('statusPanel').style.display !== 'none') {
+        manager.loadStatus();
+      }
+    }, 30000); // 30秒刷新一次
+  </script>
+</body>
+
+</html>

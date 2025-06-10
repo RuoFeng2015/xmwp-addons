@@ -1,0 +1,10 @@
+{
+  "server_host": "localhost",
+  "server_port": 8080,
+  "local_ha_port": 8123,
+  "username": "admin",
+  "password": "password",
+  "client_id": "ha-dev-client",
+  "proxy_port": 19001,
+  "log_level": "debug"
+}

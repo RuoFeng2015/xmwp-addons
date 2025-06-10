@@ -1,0 +1,40 @@
+name: "内网穿透代理"
+version: "1.0.0"
+slug: tunnel-proxy
+description: "基于自建中转服务器的Home Assistant内网穿透解决方案，支持HTTP和WebSocket代理"
+url: "https://github.com/RuoFeng2015/xmwp-addons"
+arch:
+  - armhf
+  - armv7
+  - aarch64
+  - amd64
+  - i386
+startup: services
+boot: auto
+init: false
+options:
+  server_host: "your-server.com"
+  server_port: 8080
+  local_ha_port: 8123
+  username: "admin"
+  password: "password"
+  client_id: "ha-client-001"
+  proxy_port: 9001
+  log_level: "info"
+schema:
+  server_host: str
+  server_port: int(1,65535)
+  local_ha_port: int(1,65535)
+  username: str
+  password: str
+  client_id: str
+  proxy_port: int(1,65535)
+  log_level: list(debug|info|warn|error)
+ports:
+  9001/tcp: 9001
+ports_description:
+  9001/tcp: "代理服务端口"
+map:
+  - config:rw
+  - ssl:rw
+image: "ghcr.io/ruofeng2015/tunnel-proxy"

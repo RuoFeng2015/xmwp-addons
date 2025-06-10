@@ -1,0 +1,30 @@
+#!/usr/bin/with-contenv bashio
+# ==============================================================================
+# Home Assistant Add-on: 内网穿透代理
+# 启动脚本
+# ==============================================================================
+
+bashio::log.info "正在启动内网穿透代理服务..."
+
+# 检查配置
+if ! bashio::config.has_value 'server_host'; then
+    bashio::log.fatal "未配置服务器地址 (server_host)"
+    bashio::exit.nok
+fi
+
+if ! bashio::config.has_value 'username'; then
+    bashio::log.fatal "未配置用户名 (username)"
+    bashio::exit.nok
+fi
+
+if ! bashio::config.has_value 'password'; then
+    bashio::log.fatal "未配置密码 (password)"
+    bashio::exit.nok
+fi
+
+# 切换到应用目录
+cd /opt/tunnel-proxy
+
+# 启动Node.js应用
+bashio::log.info "启动代理服务..."
+exec node app.js
