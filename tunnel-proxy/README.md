@@ -40,6 +40,18 @@ proxy_port: 9001
 log_level: "info"
 ```
 
+## 🔧 安装故障排除
+
+如果在安装过程中遇到网络问题（如 `ghcr.io` 访问被拒绝），请查看详细的故障排除指南：
+
+**[📖 安装故障排除指南](INSTALLATION-TROUBLESHOOTING.md)**
+
+常见问题：
+- GitHub Container Registry 访问受限
+- 网络连接超时
+- 镜像下载失败
+- 架构不匹配
+
 ## 使用方法
 
 1. 在加载项商店中安装此加载项

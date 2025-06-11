@@ -1,12 +1,24 @@
-ARG BUILD_FROM=ghcr.io/hassio-addons/base:15.0.1
+# 多架构支持
+ARG BUILD_FROM
 FROM $BUILD_FROM
 
-# 安装Node.js和npm
+# 设置环境变量
+ENV \
+  S6_BEHAVIOUR_IF_STAGE2_FAILS=2 \
+  S6_CMD_WAIT_FOR_SERVICES=1
+
+# 安装Node.js和npm，使用国内镜像加速
 RUN \
   apk add --no-cache \
   nodejs \
   npm \
-  && npm config set registry https://registry.npmmirror.com
+  curl \
+  ca-certificates \
+  && npm config set registry https://registry.npmmirror.com \
+  && npm config set disturl https://npmmirror.com/dist \
+  && npm config set electron_mirror https://npmmirror.com/mirrors/electron/ \
+  && npm config set sass_binary_site https://npmmirror.com/mirrors/node-sass/ \
+  && npm config set phantomjs_cdnurl https://npmmirror.com/mirrors/phantomjs/
 
 # 创建应用目录
 WORKDIR /opt/tunnel-proxy

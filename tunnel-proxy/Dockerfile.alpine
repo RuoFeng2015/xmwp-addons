@@ -1,0 +1,52 @@
+# 简化版Dockerfile - 使用Alpine Linux基础镜像
+FROM alpine:3.18
+
+# 安装必要的包
+RUN apk add --no-cache \
+  nodejs \
+  npm \
+  curl \
+  ca-certificates \
+  bash \
+  s6-overlay
+
+# 设置环境变量
+ENV \
+  S6_BEHAVIOUR_IF_STAGE2_FAILS=2 \
+  S6_CMD_WAIT_FOR_SERVICES=1 \
+  LANG=C.UTF-8
+
+# 创建应用目录
+WORKDIR /opt/tunnel-proxy
+
+# 复制应用文件
+COPY rootfs /
+
+# 设置npm镜像源
+RUN npm config set registry https://registry.npmmirror.com
+
+# 安装依赖
+WORKDIR /opt/tunnel-proxy
+RUN npm install --only=production --no-audit --no-fund --unsafe-perm
+
+# 设置执行权限
+RUN chmod a+x /etc/services.d/tunnel-proxy/run && \
+  chmod a+x /etc/services.d/tunnel-proxy/finish
+
+# 健康检查
+HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
+  CMD curl -f http://localhost:9001/health || exit 1
+
+# 暴露端口
+EXPOSE 9001
+
+# 标签
+LABEL \
+  io.hass.name="内网穿透代理" \
+  io.hass.description="基于自建中转服务器的Home Assistant内网穿透解决方案" \
+  io.hass.arch="aarch64|amd64|armhf|armv7|i386" \
+  io.hass.type="addon" \
+  io.hass.version="1.0.1"
+
+# 使用s6-overlay作为init系统
+ENTRYPOINT ["/init"]
