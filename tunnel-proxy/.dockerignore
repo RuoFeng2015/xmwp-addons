@@ -1,0 +1,25 @@
+# 开发文件
+config-dev.json
+*.log
+npm-debug.log*
+package-lock.json
+
+# 版本控制
+.git
+.gitignore
+
+# 编辑器
+.vscode
+.idea
+
+# 操作系统
+.DS_Store
+Thumbs.db
+
+# 文档
+*.md
+icon-info.md
+
+# 构建文件
+node_modules
+.npm

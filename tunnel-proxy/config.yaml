@@ -1,16 +1,16 @@
 name: "内网穿透代理"
-version: "1.0.0"
+version: "1.0.1"
 slug: tunnel-proxy
-description: "基于自建中转服务器的Home Assistant内网穿透解决方案，支持HTTP和WebSocket代理"
+description: "基于自建中转服务器的Home Assistant内网穿透解决方案"
 url: "https://github.com/RuoFeng2015/xmwp-addons"
 arch:
-  - armhf
-  - armv7
   - aarch64
   - amd64
+  - armhf
+  - armv7
   - i386
 startup: services
-boot: auto
+boot: manual
 init: false
 options:
   server_host: "your-server.com"
@@ -37,4 +37,3 @@ ports_description:
 map:
   - config:rw
   - ssl:rw
-image: "ghcr.io/ruofeng2015/tunnel-proxy"

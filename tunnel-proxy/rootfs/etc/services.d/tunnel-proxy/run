@@ -22,6 +22,9 @@ if ! bashio::config.has_value 'password'; then
     bashio::exit.nok
 fi
 
+# 创建配置文件目录
+mkdir -p /data
+
 # 切换到应用目录
 cd /opt/tunnel-proxy
 

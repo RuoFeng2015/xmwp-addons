@@ -4,22 +4,23 @@ FROM $BUILD_FROM
 # 安装Node.js和npm
 RUN \
   apk add --no-cache \
-  nodejs=~18 \
-  npm=~18 \
+  nodejs \
+  npm \
   && npm config set registry https://registry.npmmirror.com
 
-# 设置工作目录
+# 创建应用目录
 WORKDIR /opt/tunnel-proxy
 
 # 复制应用文件
 COPY rootfs /
 
-# 安装npm依赖
-COPY rootfs/opt/tunnel-proxy/package*.json ./
-RUN npm ci --only=production
+# 安装依赖
+WORKDIR /opt/tunnel-proxy
+RUN npm install --only=production --no-audit --no-fund
 
 # 设置执行权限
-RUN chmod a+x /etc/services.d/tunnel-proxy/run
+RUN chmod a+x /etc/services.d/tunnel-proxy/run \
+  && chmod a+x /etc/services.d/tunnel-proxy/finish
 
 # 构建参数
 ARG BUILD_ARCH

@@ -13,9 +13,9 @@ const net = require('net');
 const TunnelClient = require('./tunnel-client');
 
 // 配置文件路径
-const CONFIG_PATH = process.env.NODE_ENV === 'development' 
-    ? path.join(__dirname, 'config-dev.json')
-    : '/data/options.json';
+const CONFIG_PATH = process.env.NODE_ENV === 'development'
+  ? path.join(__dirname, 'config-dev.json')
+  : '/data/options.json';
 const JWT_SECRET = 'ha-tunnel-proxy-secret-key-2023';
 
 // 全局变量
@@ -54,50 +54,50 @@ class Logger {
  * 配置管理类
  */
 class ConfigManager {
-    static loadConfig() {
-        try {
-            // 检查配置文件是否存在
-            if (!fs.existsSync(CONFIG_PATH)) {
-                // 如果是开发环境，创建默认配置
-                if (process.env.NODE_ENV === 'development') {
-                    Logger.warn('开发环境：配置文件不存在，使用默认配置');
-                    config = this.getDefaultConfig();
-                    // 创建开发配置文件
-                    fs.writeFileSync(CONFIG_PATH, JSON.stringify(config, null, 2));
-                    Logger.info('已创建开发配置文件: ' + CONFIG_PATH);
-                    return config;
-                } else {
-                    throw new Error(`配置文件不存在: ${CONFIG_PATH}`);
-                }
-            }
-
-            const configData = fs.readFileSync(CONFIG_PATH, 'utf8');
-            config = JSON.parse(configData);
-            Logger.info('配置文件加载成功');
-            return config;
-        } catch (error) {
-            Logger.error(`配置文件加载失败: ${error.message}`);
-            if (process.env.NODE_ENV === 'development') {
-                Logger.info('开发环境：使用默认配置继续运行');
-                config = this.getDefaultConfig();
-                return config;
-            }
-            process.exit(1);
+  static loadConfig() {
+    try {
+      // 检查配置文件是否存在
+      if (!fs.existsSync(CONFIG_PATH)) {
+        // 如果是开发环境，创建默认配置
+        if (process.env.NODE_ENV === 'development') {
+          Logger.warn('开发环境：配置文件不存在，使用默认配置');
+          config = this.getDefaultConfig();
+          // 创建开发配置文件
+          fs.writeFileSync(CONFIG_PATH, JSON.stringify(config, null, 2));
+          Logger.info('已创建开发配置文件: ' + CONFIG_PATH);
+          return config;
+        } else {
+          throw new Error(`配置文件不存在: ${CONFIG_PATH}`);
         }
-    }
+      }
 
-    static getDefaultConfig() {
-        return {
-            server_host: "localhost",
-            server_port: 8080,
-            local_ha_port: 8123,
-            username: "admin",
-            password: "password",
-            client_id: "ha-dev-client",
-            proxy_port: 9001,
-            log_level: "debug"
-        };
+      const configData = fs.readFileSync(CONFIG_PATH, 'utf8');
+      config = JSON.parse(configData);
+      Logger.info('配置文件加载成功');
+      return config;
+    } catch (error) {
+      Logger.error(`配置文件加载失败: ${error.message}`);
+      if (process.env.NODE_ENV === 'development') {
+        Logger.info('开发环境：使用默认配置继续运行');
+        config = this.getDefaultConfig();
+        return config;
+      }
+      process.exit(1);
     }
+  }
+
+  static getDefaultConfig() {
+    return {
+      server_host: "localhost",
+      server_port: 8080,
+      local_ha_port: 8123,
+      username: "admin",
+      password: "password",
+      client_id: "ha-dev-client",
+      proxy_port: 9001,
+      log_level: "debug"
+    };
+  }
 
   static validateConfig() {
     const required = ['server_host', 'server_port', 'username', 'password', 'client_id'];
@@ -442,64 +442,64 @@ class TunnelProxyApp {
         Logger.debug('WebSocket升级请求');
         httpProxy.ws(req, socket, head);
       });            // 启动服务器
-            server.listen(config.proxy_port, () => {
+      server.listen(config.proxy_port, () => {
+        Logger.info(`代理服务器已启动，监听端口: ${config.proxy_port}`);
+      });
+
+      // 处理端口冲突
+      server.on('error', (error) => {
+        if (error.code === 'EADDRINUSE') {
+          if (process.env.NODE_ENV === 'development') {
+            Logger.warn(`端口 ${config.proxy_port} 被占用，尝试其他端口...`);
+            config.proxy_port = config.proxy_port + 1;
+            setTimeout(() => {
+              server.listen(config.proxy_port, () => {
                 Logger.info(`代理服务器已启动，监听端口: ${config.proxy_port}`);
-            });
-
-            // 处理端口冲突
-            server.on('error', (error) => {
-                if (error.code === 'EADDRINUSE') {
-                    if (process.env.NODE_ENV === 'development') {
-                        Logger.warn(`端口 ${config.proxy_port} 被占用，尝试其他端口...`);
-                        config.proxy_port = config.proxy_port + 1;
-                        setTimeout(() => {
-                            server.listen(config.proxy_port, () => {
-                                Logger.info(`代理服务器已启动，监听端口: ${config.proxy_port}`);
-                            });
-                        }, 1000);
-                    } else {
-                        Logger.error(`端口 ${config.proxy_port} 被占用`);
-                        throw error;
-                    }
-                } else {
-                    throw error;
-                }
-            });
-
-            // 连接到中转服务器
-            try {
-                await TunnelManager.connectToServer();
-            } catch (error) {
-                if (process.env.NODE_ENV === 'development') {
-                    Logger.warn(`开发环境：中转服务器连接失败，但服务将继续运行: ${error.message}`);
-                } else {
-                    throw error;
-                }
-            }
-
-            // 清理过期连接
-            setInterval(() => {
-                const now = Date.now();
-                for (const [connectionId, connection] of activeConnections.entries()) {
-                    if (now - connection.timestamp > 300000) { // 5分钟超时
-                        activeConnections.delete(connectionId);
-                    }
-                }
-            }, 60000); // 1分钟清理一次
-
-            Logger.info('内网穿透代理服务启动成功！');
-
-        } catch (error) {
-            Logger.error(`服务启动失败: ${error.message}`);
-            if (process.env.NODE_ENV !== 'development') {
-                process.exit(1);
-            } else {
-                Logger.warn('开发环境：忽略启动错误，服务将继续运行');
-            }
+              });
+            }, 1000);
+          } else {
+            Logger.error(`端口 ${config.proxy_port} 被占用`);
+            throw error;
+          }
+        } else {
+          throw error;
         }
-    }
+      });
 
-    static async stop() {
+      // 连接到中转服务器
+      try {
+        await TunnelManager.connectToServer();
+      } catch (error) {
+        if (process.env.NODE_ENV === 'development') {
+          Logger.warn(`开发环境：中转服务器连接失败，但服务将继续运行: ${error.message}`);
+        } else {
+          throw error;
+        }
+      }
+
+      // 清理过期连接
+      setInterval(() => {
+        const now = Date.now();
+        for (const [connectionId, connection] of activeConnections.entries()) {
+          if (now - connection.timestamp > 300000) { // 5分钟超时
+            activeConnections.delete(connectionId);
+          }
+        }
+      }, 60000); // 1分钟清理一次
+
+      Logger.info('内网穿透代理服务启动成功！');
+
+    } catch (error) {
+      Logger.error(`服务启动失败: ${error.message}`);
+      if (process.env.NODE_ENV !== 'development') {
+        process.exit(1);
+      } else {
+        Logger.warn('开发环境：忽略启动错误，服务将继续运行');
+      }
+    }
+  }
+
+  static async stop() {
     Logger.info('正在停止服务...');
 
     TunnelManager.disconnect();
