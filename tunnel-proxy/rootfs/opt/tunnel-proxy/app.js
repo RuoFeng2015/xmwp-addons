@@ -252,7 +252,6 @@ class TunnelManager {
       '10.0.0.170'
     ];
   }
-
   static attemptHAConnection(message, hostname) {
     return new Promise((resolve, reject) => {
       const http = require('http');
@@ -264,16 +263,26 @@ class TunnelManager {
         method: message.method,
         headers: { ...message.headers },
         family: 4,
-        timeout: 2000
+        timeout: 5000 // 增加超时时间到5秒
       };
 
-      delete options.headers['host'];
+      // 设置正确的Host头，这对Home Assistant很重要
+      options.headers['host'] = `${hostname}:${config.local_ha_port}`;
+      
+      // 只删除可能导致冲突的头信息，保留必要的头
       delete options.headers['connection'];
-      delete options.headers['content-length'];
+      delete options.headers['content-length']; // 会自动重新计算
       delete options.headers['transfer-encoding'];
+        // 确保有正确的User-Agent
+      if (!options.headers['user-agent']) {
+        options.headers['user-agent'] = 'HomeAssistant-Tunnel-Proxy/1.0.8';
+      }
+
+      Logger.debug(`${hostname} 请求头: ${JSON.stringify(options.headers, null, 2)}`);
 
       const proxyReq = http.request(options, (proxyRes) => {
-        Logger.debug(`${hostname} 响应: HTTP ${proxyRes.statusCode}`);
+        Logger.info(`${hostname} 响应: HTTP ${proxyRes.statusCode} ${proxyRes.statusMessage}`);
+        Logger.debug(`${hostname} 响应头: ${JSON.stringify(proxyRes.headers, null, 2)}`);
 
         let responseBody = Buffer.alloc(0);
         proxyRes.on('data', chunk => {
@@ -305,6 +314,7 @@ class TunnelManager {
         reject(new Error('连接超时'));
       });
 
+      // 发送请求体
       if (message.body) {
         proxyReq.write(message.body);
       }
@@ -439,7 +449,6 @@ class TunnelManager {
     Logger.error(`❌ 所有地址测试失败: ${targetHosts.join(', ')}`);
     return false;
   }
-
   static testSingleHost(hostname) {
     return new Promise((resolve, reject) => {
       const http = require('http');
@@ -450,11 +459,14 @@ class TunnelManager {
         path: '/',
         method: 'GET',
         timeout: 3000,
-        family: 4
+        family: 4,        headers: {
+          'host': `${hostname}:${config.local_ha_port}`,
+          'user-agent': 'HomeAssistant-Tunnel-Proxy/1.0.8'
+        }
       };
 
       const req = http.request(options, (res) => {
-        Logger.debug(`${hostname} 测试响应: HTTP ${res.statusCode}`);
+        Logger.debug(`${hostname} 测试响应: HTTP ${res.statusCode} ${res.statusMessage}`);
         resolve(true);
       });
 
@@ -560,7 +572,7 @@ class ProxyServer {
       ctx.body = {
         status: 'ok',
         timestamp: Date.now(),
-        version: '1.0.7'
+        version: '1.0.8'
       };
     });
 
