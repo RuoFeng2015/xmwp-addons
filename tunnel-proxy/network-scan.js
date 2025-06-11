@@ -35,13 +35,13 @@ function generateIPRange(baseIP) {
   const parts = baseIP.split('.');
   const base = `${parts[0]}.${parts[1]}.${parts[2]}`;
   const ips = [];
-  
+
   // 扫描同网段的常用IP
   const commonIPs = [1, 2, 3, 100, 101, 102, 110, 111, 120, 200, 254];
   for (const ip of commonIPs) {
     ips.push(`${base}.${ip}`);
   }
-  
+
   return ips;
 }
 
@@ -66,10 +66,10 @@ function testHomeAssistant(ip, port = 8123) {
       });
 
       res.on('end', () => {
-        const isHA = body.includes('Home Assistant') || 
-                     body.includes('homeassistant') ||
-                     res.headers['server']?.includes('HomeAssistant');
-        
+        const isHA = body.includes('Home Assistant') ||
+          body.includes('homeassistant') ||
+          res.headers['server']?.includes('HomeAssistant');
+
         resolve({
           ip,
           port,
@@ -99,7 +99,7 @@ function testHomeAssistant(ip, port = 8123) {
  */
 async function scanNetwork() {
   console.log('📡 正在扫描网络中的Home Assistant实例...\n');
-  
+
   // 首先检查本机
   console.log('检查本机 (127.0.0.1)...');
   const localResult = await testHomeAssistant('127.0.0.1');
@@ -111,13 +111,13 @@ async function scanNetwork() {
   // 获取本机IP并扫描同网段
   const localIPs = getLocalIPs();
   console.log(`本机IP: ${localIPs.join(', ')}`);
-  
+
   const foundInstances = [];
-  
+
   for (const localIP of localIPs) {
     console.log(`\n扫描网段: ${localIP.split('.').slice(0, 3).join('.')}.x`);
     const ipRange = generateIPRange(localIP);
-    
+
     // 批量测试IP
     const batchSize = 10;
     for (let i = 0; i < ipRange.length; i += batchSize) {
@@ -125,7 +125,7 @@ async function scanNetwork() {
       const results = await Promise.all(
         batch.map(ip => testHomeAssistant(ip))
       );
-      
+
       for (const result of results) {
         if (result.success) {
           process.stdout.write(`${result.ip}:${result.port} `);
@@ -149,7 +149,7 @@ async function scanNetwork() {
 function showResults(instances) {
   console.log('\n' + '='.repeat(60));
   console.log('📊 扫描结果:');
-  
+
   if (instances.length === 0) {
     console.log('❌ 未发现Home Assistant实例');
     console.log('\n💡 可能原因:');
@@ -157,7 +157,7 @@ function showResults(instances) {
     console.log('   - Home Assistant启用了认证或特殊配置');
     console.log('   - 防火墙阻止了连接');
     console.log('   - Home Assistant运行在其他网络');
-    
+
     console.log('\n🔧 建议操作:');
     console.log('   1. 确认Home Assistant正在运行');
     console.log('   2. 检查Home Assistant的网络配置');
@@ -165,13 +165,13 @@ function showResults(instances) {
     console.log('   4. 如果HA在其他端口，请手动配置插件');
   } else {
     console.log(`✅ 发现 ${instances.length} 个Home Assistant实例:`);
-    
+
     instances.forEach((instance, index) => {
       console.log(`\n${index + 1}. ${instance.ip}:${instance.port}`);
       console.log(`   状态: HTTP ${instance.statusCode}`);
       console.log(`   标题: ${instance.title}`);
     });
-    
+
     console.log('\n🔧 配置建议:');
     const primaryInstance = instances[0];
     console.log(`在Home Assistant插件配置中设置:`);
@@ -181,7 +181,7 @@ function showResults(instances) {
       console.log(`   如果插件在其他设备，需要配置具体IP地址`);
     }
   }
-  
+
   console.log('\n📝 配置完成后重启插件并测试访问');
 }
 

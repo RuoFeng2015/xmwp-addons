@@ -193,7 +193,7 @@ class TunnelManager {
           Logger.error(`隧道连接错误: ${error.message}`);
           connectionStatus = 'error';
           reject(error);
-        });        tunnelClient.on('proxy_request', (message) => {
+        }); tunnelClient.on('proxy_request', (message) => {
           this.handleProxyRequest(message);
         });
 
@@ -222,7 +222,6 @@ class TunnelManager {
     Logger.debug(`处理代理请求: ${message.request_id} ${message.method} ${message.url}`);
     this.smartConnectToHA(message);
   }
-
   static handleWebSocketUpgrade(message) {
     Logger.debug(`处理WebSocket升级请求: ${message.upgrade_id} ${message.url}`);
     this.smartConnectWebSocketToHA(message);
@@ -231,7 +230,7 @@ class TunnelManager {
   static handleWebSocketData(message) {
     const { upgrade_id, data } = message;
     const wsConnection = this.wsConnections.get(upgrade_id);
-    
+
     if (wsConnection && wsConnection.socket) {
       try {
         const binaryData = Buffer.from(data, 'base64');
@@ -247,7 +246,7 @@ class TunnelManager {
   static handleWebSocketClose(message) {
     const { upgrade_id } = message;
     const wsConnection = this.wsConnections.get(upgrade_id);
-    
+
     if (wsConnection) {
       Logger.debug(`关闭WebSocket连接: ${upgrade_id}`);
       if (wsConnection.socket) {
@@ -332,7 +331,7 @@ class TunnelManager {
         let responseBody = Buffer.alloc(0);
         proxyRes.on('data', chunk => {
           responseBody = Buffer.concat([responseBody, chunk]);
-        });        proxyRes.on('end', () => {
+        }); proxyRes.on('end', () => {
           const response = {
             type: 'proxy_response',
             request_id: message.request_id,
@@ -525,7 +524,6 @@ class TunnelManager {
       req.end();
     });
   }
-
   static async smartConnectWebSocketToHA(message) {
     const targetHosts = this.lastSuccessfulHost
       ? [this.lastSuccessfulHost, ...this.getTargetHosts().filter(h => h !== this.lastSuccessfulHost)]
@@ -601,27 +599,33 @@ class TunnelManager {
             'connection': 'upgrade',
             'sec-websocket-accept': 'dummy' // 实际值由WebSocket库处理
           }
-        };
-
-        tunnelClient.send(response);
-
-        // 设置数据转发
+        }; tunnelClient.send(response);
+        Logger.debug(`发送WebSocket升级响应: ${message.upgrade_id}, 状态: 101`);
         this.setupWebSocketDataForwarding(ws, message.upgrade_id);
 
         resolve(true);
-      });
-
-      ws.on('error', (error) => {
+      }); ws.on('error', (error) => {
         if (resolved) return;
         resolved = true;
         Logger.debug(`WebSocket连接失败 ${hostname}: ${error.message}`);
+
+        // 发送错误响应
+        const errorResponse = {
+          type: 'websocket_upgrade_response',
+          upgrade_id: message.upgrade_id,
+          status_code: 502,
+          headers: {}
+        };
+        tunnelClient.send(errorResponse);
+        Logger.debug(`发送WebSocket升级错误响应: ${message.upgrade_id}, 状态: 502`);
+
         reject(error);
       });
 
       ws.on('close', () => {
         Logger.debug(`WebSocket连接关闭: ${hostname}`);
         this.wsConnections.delete(message.upgrade_id);
-        
+
         // 通知服务器连接关闭
         const response = {
           type: 'websocket_close',

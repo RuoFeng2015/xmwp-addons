@@ -13,11 +13,10 @@ class TunnelClient extends EventEmitter {
       host: options.host,
       port: options.port,
       username: options.username,
-      password: options.password,
-      clientId: options.clientId,
+      password: options.password, clientId: options.clientId,
       reconnectInterval: options.reconnectInterval || 5000,
       heartbeatInterval: options.heartbeatInterval || 30000,
-      timeout: options.timeout || 30000
+      timeout: options.timeout || 90000  // 增加到90秒超时
     };
 
     this.socket = null;
@@ -213,7 +212,7 @@ class TunnelClient extends EventEmitter {
 
       case 'proxy_response':
         this.emit('proxy_response', message);
-        break;      case 'tunnel_data':
+        break; case 'tunnel_data':
         this.emit('tunnel_data', message);
         break;
 

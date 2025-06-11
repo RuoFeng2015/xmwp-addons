@@ -16,7 +16,7 @@ const tests = [
   },
   {
     name: 'GET API状态',
-    method: 'GET', 
+    method: 'GET',
     path: '/ha-client-001/api/',
     expectedStatus: 200
   },
@@ -51,11 +51,11 @@ async function runTest(test) {
         const success = res.statusCode === test.expectedStatus;
         console.log(`   响应: ${res.statusCode} ${res.statusMessage}`);
         console.log(`   结果: ${success ? '✅ 通过' : '❌ 失败'}`);
-        
+
         if (res.statusCode === 400) {
           console.log(`   错误详情: ${body}`);
         }
-        
+
         console.log('');
         resolve({ test: test.name, success, statusCode: res.statusCode });
       });
@@ -73,7 +73,7 @@ async function runTest(test) {
 
 async function runAllTests() {
   console.log('开始验证测试...\n');
-  
+
   const results = [];
   for (const test of tests) {
     const result = await runTest(test);
@@ -82,10 +82,10 @@ async function runAllTests() {
 
   console.log('📊 测试总结');
   console.log('=====================================');
-  
+
   const passed = results.filter(r => r.success).length;
   const total = results.length;
-  
+
   console.log(`总计: ${total} 个测试`);
   console.log(`通过: ${passed} 个测试`);
   console.log(`失败: ${total - passed} 个测试\n`);

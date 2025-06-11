@@ -22,10 +22,10 @@ async function testCorrectProxy() {
         };
 
         const startTime = Date.now();
-        
+
         const req = http.request(options, (res) => {
             const responseTime = Date.now() - startTime;
-            
+
             console.log(`✅ 响应状态: ${res.statusCode}`);
             console.log(`⏱️  响应时间: ${responseTime}ms`);
             console.log(`📋 响应头:`);
@@ -40,7 +40,7 @@ async function testCorrectProxy() {
 
             res.on('end', () => {
                 console.log(`\n📄 响应内容长度: ${body.length} 字节`);
-                
+
                 if (res.statusCode === 200) {
                     console.log('🎉 成功: 收到正常响应!');
                     if (body.includes('Home Assistant') || body.includes('homeassistant')) {
@@ -54,7 +54,7 @@ async function testCorrectProxy() {
                 } else {
                     console.log(`⚠️  状态码: ${res.statusCode}`);
                 }
-                
+
                 if (body && body.length < 500) {
                     console.log('\n📝 响应内容预览:');
                     console.log(body);

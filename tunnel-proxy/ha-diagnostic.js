@@ -37,10 +37,10 @@ function testPort(host, port) {
       });
 
       res.on('end', () => {
-        const isHA = body.includes('Home Assistant') || 
-                     body.includes('homeassistant') ||
-                     res.headers['server']?.includes('HomeAssistant');
-        
+        const isHA = body.includes('Home Assistant') ||
+          body.includes('homeassistant') ||
+          res.headers['server']?.includes('HomeAssistant');
+
         resolve({
           port,
           success: true,
@@ -85,13 +85,13 @@ async function runDiagnostics() {
 
   for (const port of CONFIG.HA_PORTS) {
     process.stdout.write(`测试端口 ${port}... `);
-    
+
     const result = await testPort(CONFIG.HA_HOST, port);
-    
+
     if (result.success) {
       console.log(`✅ 连接成功 (HTTP ${result.statusCode})`);
       availablePorts.push(port);
-      
+
       if (result.isHomeAssistant) {
         console.log(`   🏠 检测到Home Assistant!`);
         foundHA = true;
@@ -105,7 +105,7 @@ async function runDiagnostics() {
 
   console.log('\n' + '='.repeat(50));
   console.log('📊 诊断结果:');
-  
+
   if (foundHA) {
     console.log('✅ 发现Home Assistant实例');
     console.log(`📍 建议在插件配置中使用以下端口: ${availablePorts.join(' 或 ')}`);

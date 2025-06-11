@@ -13,14 +13,14 @@ COPY rootfs/opt/tunnel-proxy/package.json ./
 
 # 安装依赖（使用淘宝镜像）
 RUN npm config set registry https://registry.npmmirror.com && \
-    npm install --production
+  npm install --production
 
 # 复制应用文件
 COPY rootfs /
 
 # 设置执行权限
 RUN chmod +x /etc/services.d/tunnel-proxy/run && \
-    chmod +x /etc/services.d/tunnel-proxy/finish
+  chmod +x /etc/services.d/tunnel-proxy/finish
 
 # 健康检查
 HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
