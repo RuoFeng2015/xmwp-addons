@@ -1,6 +1,6 @@
 {
   "name": "tunnel-proxy",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "Home Assistant内网穿透代理服务",
   "main": "app.js",
   "scripts": {
