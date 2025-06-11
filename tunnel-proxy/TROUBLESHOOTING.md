@@ -55,7 +55,7 @@ Can't install ghcr.io/ruofeng2015/tunnel-proxy:1.0.0: 500 Server Error for http+
 ### 4. 配置加载项
 ```yaml
 server_host: "your-server.com"
-server_port: 8080
+server_port: 3080
 local_ha_port: 8123
 username: "admin"
 password: "your_secure_password"

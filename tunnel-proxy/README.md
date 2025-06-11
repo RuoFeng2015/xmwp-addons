@@ -19,7 +19,7 @@
 | 配置项 | 类型 | 必填 | 默认值 | 说明 |
 |--------|------|------|--------|------|
 | `server_host` | string | 是 | - | 中转服务器地址 |
-| `server_port` | int | 是 | 8080 | 中转服务器端口 |
+| `server_port` | int | 是 | 3080 | 中转服务器端口 |
 | `local_ha_port` | int | 是 | 8123 | 本地 HA 端口 |
 | `username` | string | 是 | admin | 登录用户名 |
 | `password` | string | 是 | password | 登录密码 |
@@ -31,7 +31,7 @@
 
 ```yaml
 server_host: "tunnel.example.com"
-server_port: 8080
+server_port: 3080
 local_ha_port: 8123
 username: "admin"
 password: "your_secure_password"

@@ -20,7 +20,7 @@ const WebSocket = require('ws');
 
 class TunnelServer {
     constructor(options = {}) {
-        this.port = options.port || 8080;
+        this.port = options.port || 3080;
         this.clients = new Map(); // 存储客户端连接
         this.proxies = new Map(); // 存储代理映射
         this.server = null;
@@ -171,7 +171,7 @@ class TunnelServer {
 }
 
 // 启动服务器
-const server = new TunnelServer({ port: 8080 });
+const server = new TunnelServer({ port: 3080 });
 server.start();
 server.startHealthCheck();
 
@@ -195,7 +195,7 @@ console.log('中转服务器已启动');
 
 ## 端口说明
 
-- 8080: 隧道连接端口
-- 8081: Web代理端口
+- 3080: 隧道连接端口
+- 3081: Web代理端口
 
 根据你的实际需求调整端口配置。

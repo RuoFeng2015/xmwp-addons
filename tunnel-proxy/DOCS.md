@@ -5,7 +5,7 @@
 ### 1.1 服务器要求
 - 一台具有公网IP的服务器
 - 支持Node.js运行环境
-- 开放8080端口（或你指定的端口）
+- 开放3080端口（或你指定的端口）
 
 ### 1.2 Home Assistant 要求
 - Home Assistant OS 2023及以上版本
@@ -62,7 +62,7 @@ pm2 save
 
 ```yaml
 server_host: "your-server.com"  # 你的服务器地址
-server_port: 8080               # 服务器端口
+server_port: 3080               # 服务器端口
 local_ha_port: 8123            # 本地HA端口
 username: "admin"              # 登录用户名
 password: "your_secure_password"  # 登录密码
@@ -76,7 +76,7 @@ log_level: "info"              # 日志级别
 | 配置项 | 必填 | 说明 | 默认值 |
 |--------|------|------|--------|
 | server_host | 是 | 中转服务器地址 | - |
-| server_port | 是 | 中转服务器端口 | 8080 |
+| server_port | 是 | 中转服务器端口 | 3080 |
 | local_ha_port | 否 | 本地HA端口 | 8123 |
 | username | 是 | 登录用户名 | admin |
 | password | 是 | 登录密码 | password |
@@ -96,7 +96,7 @@ log_level: "info"              # 日志级别
 
 ### 5.3 通过隧道访问 HA
 配置完成后，你可以通过中转服务器访问你的 Home Assistant：
-`http://your-server.com:8081/your-client-id/`
+`http://your-server.com:3081/your-client-id/`
 
 ## 6. 故障排除
 

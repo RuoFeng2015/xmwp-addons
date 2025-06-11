@@ -24,7 +24,7 @@
 ### 步骤3：配置加载项
 ```yaml
 server_host: "tunnel.yourdomain.com"  # 您的中转服务器地址
-server_port: 8080                     # 中转服务器端口
+server_port: 3080                     # 中转服务器端口
 local_ha_port: 8123                   # 本地HA端口
 username: "admin"                     # 用户名
 password: "your_secure_password"      # 安全密码
@@ -85,7 +85,7 @@ curl -v http://localhost:9001/health
 ### 检查中转服务器连接
 查看日志中是否有类似信息：
 ```
-✅ 已连接到中转服务器: tunnel.yourdomain.com:8080
+✅ 已连接到中转服务器: tunnel.yourdomain.com:3080
 ✅ 代理服务启动在端口 9001
 ```
 
@@ -106,7 +106,7 @@ curl -v http://localhost:9001/health
 
 ### 外网访问Home Assistant
 1. 配置好代理后，通过以下地址访问：
-   - `http://your-server.com:8081/your-client-id/`
+   - `http://your-server.com:3081/your-client-id/`
    - 替换为您的实际服务器地址和客户端ID
 
 ### WebSocket连接

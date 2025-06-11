@@ -86,7 +86,7 @@ class ConfigManager {
   static getDefaultConfig() {
     return {
       server_host: "localhost",
-      server_port: 8080,
+      server_port: 3080,
       local_ha_port: 8123,
       username: "admin",
       password: "password",
@@ -267,13 +267,12 @@ class TunnelManager {
       };
 
       // 设置正确的Host头，这对Home Assistant很重要
-      options.headers['host'] = `${hostname}:${config.local_ha_port}`;
-      
-      // 只删除可能导致冲突的头信息，保留必要的头
+      options.headers['host'] = `${hostname}:${config.local_ha_port}`;      // 只删除可能导致冲突的头信息，保留必要的头
       delete options.headers['connection'];
       delete options.headers['content-length']; // 会自动重新计算
       delete options.headers['transfer-encoding'];
-        // 确保有正确的User-Agent
+      delete options.headers['accept-encoding']; // 删除压缩编码请求，避免二进制数据损坏
+      // 确保有正确的User-Agent
       if (!options.headers['user-agent']) {
         options.headers['user-agent'] = 'HomeAssistant-Tunnel-Proxy/1.0.8';
       }
@@ -287,15 +286,13 @@ class TunnelManager {
         let responseBody = Buffer.alloc(0);
         proxyRes.on('data', chunk => {
           responseBody = Buffer.concat([responseBody, chunk]);
-        });
-
-        proxyRes.on('end', () => {
+        });        proxyRes.on('end', () => {
           const response = {
             type: 'proxy_response',
             request_id: message.request_id,
             status_code: proxyRes.statusCode,
             headers: proxyRes.headers,
-            body: responseBody.toString()
+            body: responseBody.toString('base64') // 使用base64编码保持二进制数据完整性
           };
 
           tunnelClient.send(response);
@@ -459,7 +456,7 @@ class TunnelManager {
         path: '/',
         method: 'GET',
         timeout: 3000,
-        family: 4,        headers: {
+        family: 4, headers: {
           'host': `${hostname}:${config.local_ha_port}`,
           'user-agent': 'HomeAssistant-Tunnel-Proxy/1.0.8'
         }
