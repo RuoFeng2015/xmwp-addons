@@ -209,17 +209,114 @@ class TunnelManager {
       }
     });
   }
-
   static handleProxyRequest(message) {
-    Logger.debug(`处理代理请求: ${message.request_id}`);
+    Logger.debug(`处理代理请求: ${message.request_id} ${message.method} ${message.url}`);
 
-    // 这里实现具体的代理逻辑
-    // 将请求转发到本地HA实例
     try {
-      // 可以在这里添加请求转发逻辑
-      // 例如使用http模块转发到本地HA
+      const http = require('http');
+      const https = require('https');
+      const url = require('url');
+      
+      // 构建目标URL
+      const targetUrl = `http://localhost:${config.local_ha_port}${message.url}`;
+      const parsedUrl = url.parse(targetUrl);
+      
+      Logger.debug(`转发请求到: ${targetUrl}`);
+
+      // 创建请求选项
+      const options = {
+        hostname: parsedUrl.hostname,
+        port: parsedUrl.port || 80,
+        path: parsedUrl.path,
+        method: message.method,
+        headers: { ...message.headers }
+      };
+
+      // 移除可能导致问题的头信息
+      delete options.headers['host'];
+      delete options.headers['connection'];
+      delete options.headers['content-length'];
+
+      // 创建请求
+      const proxyReq = http.request(options, (proxyRes) => {
+        Logger.debug(`收到本地响应: ${proxyRes.statusCode}`);
+
+        // 读取响应体
+        let responseBody = '';
+        proxyRes.on('data', chunk => {
+          responseBody += chunk.toString();
+        });
+
+        proxyRes.on('end', () => {
+          // 发送响应回服务器
+          const response = {
+            type: 'proxy_response',
+            request_id: message.request_id,
+            status_code: proxyRes.statusCode,
+            headers: proxyRes.headers,
+            body: responseBody
+          };
+
+          tunnelClient.send(response);
+          Logger.debug(`代理响应已发送: ${message.request_id}`);
+        });
+      });
+
+      // 处理请求错误
+      proxyReq.on('error', (error) => {
+        Logger.error(`代理请求失败: ${error.message}`);
+        
+        // 发送错误响应
+        const errorResponse = {
+          type: 'proxy_response',
+          request_id: message.request_id,
+          status_code: 500,
+          headers: { 'content-type': 'text/plain' },
+          body: `Proxy Error: ${error.message}`
+        };
+
+        tunnelClient.send(errorResponse);
+      });
+
+      // 设置请求超时
+      proxyReq.setTimeout(25000, () => {
+        Logger.warn(`代理请求超时: ${message.request_id}`);
+        proxyReq.destroy();
+        
+        // 发送超时响应
+        const timeoutResponse = {
+          type: 'proxy_response',
+          request_id: message.request_id,
+          status_code: 504,
+          headers: { 'content-type': 'text/plain' },
+          body: 'Gateway Timeout'
+        };
+
+        tunnelClient.send(timeoutResponse);
+      });
+
+      // 发送请求体（如果有）
+      if (message.body) {
+        proxyReq.write(message.body);
+      }
+      
+      proxyReq.end();
+
     } catch (error) {
       Logger.error(`处理代理请求失败: ${error.message}`);
+      
+      // 发送错误响应
+      const errorResponse = {
+        type: 'proxy_response',
+        request_id: message.request_id,
+        status_code: 500,
+        headers: { 'content-type': 'text/plain' },
+        body: `Internal Error: ${error.message}`
+      };
+
+      if (tunnelClient) {
+        tunnelClient.send(errorResponse);
+      }
     }
   }
 

@@ -164,6 +164,13 @@ class TunnelClient extends EventEmitter {
   }
 
   /**
+   * 发送消息 (sendMessage的别名)
+   */
+  send(message) {
+    return this.sendMessage(message);
+  }
+
+  /**
    * 处理服务器数据
    */
   handleServerData(data) {
