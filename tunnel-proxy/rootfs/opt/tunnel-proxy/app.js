@@ -25,7 +25,7 @@ let proxy = null;
 let tunnelClient = null;
 let connectionStatus = 'disconnected';
 let lastHeartbeat = null;
-let activeConnections = new Map(); // 存储活跃连接
+let activeConnections = new Map();
 
 /**
  * 日志工具类
@@ -56,13 +56,10 @@ class Logger {
 class ConfigManager {
   static loadConfig() {
     try {
-      // 检查配置文件是否存在
       if (!fs.existsSync(CONFIG_PATH)) {
-        // 如果是开发环境，创建默认配置
         if (process.env.NODE_ENV === 'development') {
           Logger.warn('开发环境：配置文件不存在，使用默认配置');
           config = this.getDefaultConfig();
-          // 创建开发配置文件
           fs.writeFileSync(CONFIG_PATH, JSON.stringify(config, null, 2));
           Logger.info('已创建开发配置文件: ' + CONFIG_PATH);
           return config;
@@ -108,7 +105,6 @@ class ConfigManager {
       }
     }
 
-    // 设置默认值
     config.local_ha_port = config.local_ha_port || 8123;
     config.proxy_port = config.proxy_port || 9001;
     config.log_level = config.log_level || 'info';
@@ -148,6 +144,8 @@ class AuthManager {
  * 隧道连接管理类
  */
 class TunnelManager {
+  static lastSuccessfulHost = null;
+
   static async connectToServer() {
     return new Promise((resolve, reject) => {
       try {
@@ -161,7 +159,6 @@ class TunnelManager {
           clientId: config.client_id
         });
 
-        // 连接事件
         tunnelClient.on('connected', () => {
           Logger.info('隧道连接建立成功');
           connectionStatus = 'connecting';
@@ -200,7 +197,6 @@ class TunnelManager {
           this.handleProxyRequest(message);
         });
 
-        // 开始连接
         tunnelClient.connect();
 
       } catch (error) {
@@ -209,136 +205,188 @@ class TunnelManager {
       }
     });
   }
+
   static handleProxyRequest(message) {
     Logger.debug(`处理代理请求: ${message.request_id} ${message.method} ${message.url}`);
+    this.smartConnectToHA(message);
+  }
 
-    try {
+  static async smartConnectToHA(message) {
+    const targetHosts = this.lastSuccessfulHost
+      ? [this.lastSuccessfulHost, ...this.getTargetHosts().filter(h => h !== this.lastSuccessfulHost)]
+      : this.getTargetHosts();
+
+    Logger.debug(`智能连接Home Assistant，端口: ${config.local_ha_port}`);
+    Logger.debug(`尝试顺序: ${targetHosts.join(', ')}`);
+
+    for (const hostname of targetHosts) {
+      try {
+        Logger.debug(`尝试连接: ${hostname}:${config.local_ha_port}`);
+        const success = await this.attemptHAConnection(message, hostname);
+        if (success) {
+          Logger.info(`✅ 成功连接到Home Assistant: ${hostname}:${config.local_ha_port}`);
+          if (this.lastSuccessfulHost !== hostname) {
+            this.lastSuccessfulHost = hostname;
+            Logger.info(`🎯 记住成功地址: ${hostname}`);
+          }
+          return;
+        }
+      } catch (error) {
+        Logger.debug(`❌ ${hostname} 连接失败: ${error.message}`);
+        continue;
+      }
+    }
+
+    this.sendDetailedError(message, targetHosts);
+  }
+
+  static getTargetHosts() {
+    return [
+      '127.0.0.1',
+      'localhost',
+      '192.168.6.170',
+      'hassio.local',
+      '172.30.32.2',
+      '192.168.6.1',
+      '192.168.1.170',
+      '10.0.0.170'
+    ];
+  }
+
+  static attemptHAConnection(message, hostname) {
+    return new Promise((resolve, reject) => {
       const http = require('http');
-      const https = require('https');
-      const url = require('url');
-        // 构建目标URL - 强制使用IPv4地址
-      const targetUrl = `http://127.0.0.1:${config.local_ha_port}${message.url}`;
-      const parsedUrl = url.parse(targetUrl);
-      
-      Logger.debug(`转发请求到: ${targetUrl}`);
 
-      // 创建请求选项 - 强制使用IPv4
       const options = {
-        hostname: '127.0.0.1',  // 强制IPv4
+        hostname: hostname,
         port: config.local_ha_port,
-        path: message.url,  // 使用原始URL路径
+        path: message.url,
         method: message.method,
         headers: { ...message.headers },
-        family: 4  // 强制IPv4
+        family: 4,
+        timeout: 2000
       };
 
-      // 移除可能导致问题的头信息
       delete options.headers['host'];
       delete options.headers['connection'];
       delete options.headers['content-length'];
+      delete options.headers['transfer-encoding'];
 
-      // 创建请求
       const proxyReq = http.request(options, (proxyRes) => {
-        Logger.debug(`收到本地响应: ${proxyRes.statusCode}`);
+        Logger.debug(`${hostname} 响应: HTTP ${proxyRes.statusCode}`);
 
-        // 读取响应体
-        let responseBody = '';
+        let responseBody = Buffer.alloc(0);
         proxyRes.on('data', chunk => {
-          responseBody += chunk.toString();
+          responseBody = Buffer.concat([responseBody, chunk]);
         });
 
         proxyRes.on('end', () => {
-          // 发送响应回服务器
           const response = {
             type: 'proxy_response',
             request_id: message.request_id,
             status_code: proxyRes.statusCode,
             headers: proxyRes.headers,
-            body: responseBody
+            body: responseBody.toString()
           };
 
           tunnelClient.send(response);
-          Logger.debug(`代理响应已发送: ${message.request_id}`);
+          Logger.info(`✅ 代理成功: ${message.request_id} via ${hostname}:${config.local_ha_port} (${proxyRes.statusCode})`);
+          resolve(true);
         });
-      });      // 处理请求错误
+      });
+
       proxyReq.on('error', (error) => {
-        Logger.error(`代理请求失败: ${error.message}`);
-        Logger.error(`目标地址: 127.0.0.1:${config.local_ha_port}`);
-        Logger.error(`请确认Home Assistant正在运行并监听端口${config.local_ha_port}`);
-        
-        // 发送错误响应
-        const errorResponse = {
-          type: 'proxy_response',
-          request_id: message.request_id,
-          status_code: 502,
-          headers: { 'content-type': 'text/html; charset=utf-8' },
-          body: `
-            <html>
-              <head><title>代理错误</title></head>
-              <body>
-                <h1>内网穿透代理错误</h1>
-                <p><strong>错误信息:</strong> ${error.message}</p>
-                <p><strong>目标地址:</strong> 127.0.0.1:${config.local_ha_port}</p>
-                <p><strong>可能原因:</strong></p>
-                <ul>
-                  <li>Home Assistant未运行或未在端口${config.local_ha_port}监听</li>
-                  <li>防火墙阻止了连接</li>
-                  <li>Home Assistant配置了特定的绑定地址</li>
-                </ul>
-                <p><strong>解决方案:</strong></p>
-                <ul>
-                  <li>检查Home Assistant是否正常运行</li>
-                  <li>确认Home Assistant监听在正确的端口</li>
-                  <li>检查插件配置中的local_ha_port设置</li>
-                </ul>
-              </body>
-            </html>
-          `
-        };
-
-        tunnelClient.send(errorResponse);
+        Logger.debug(`${hostname} 请求错误: ${error.message}`);
+        reject(error);
       });
 
-      // 设置请求超时
-      proxyReq.setTimeout(25000, () => {
-        Logger.warn(`代理请求超时: ${message.request_id}`);
+      proxyReq.on('timeout', () => {
         proxyReq.destroy();
-        
-        // 发送超时响应
-        const timeoutResponse = {
-          type: 'proxy_response',
-          request_id: message.request_id,
-          status_code: 504,
-          headers: { 'content-type': 'text/plain' },
-          body: 'Gateway Timeout'
-        };
-
-        tunnelClient.send(timeoutResponse);
+        reject(new Error('连接超时'));
       });
 
-      // 发送请求体（如果有）
       if (message.body) {
         proxyReq.write(message.body);
       }
-      
+
       proxyReq.end();
+    });
+  }
 
-    } catch (error) {
-      Logger.error(`处理代理请求失败: ${error.message}`);
-      
-      // 发送错误响应
-      const errorResponse = {
-        type: 'proxy_response',
-        request_id: message.request_id,
-        status_code: 500,
-        headers: { 'content-type': 'text/plain' },
-        body: `Internal Error: ${error.message}`
-      };
+  static sendDetailedError(message, attemptedHosts) {
+    const errorResponse = {
+      type: 'proxy_response',
+      request_id: message.request_id,
+      status_code: 502,
+      headers: { 'content-type': 'text/html; charset=utf-8' },
+      body: `
+        <!DOCTYPE html>
+        <html>
+          <head>
+            <title>Home Assistant 连接错误</title>
+            <style>
+              body { font-family: Arial, sans-serif; margin: 40px; background: #f5f5f5; }
+              .container { background: white; padding: 20px; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
+              h1 { color: #d73527; margin-top: 0; }
+              .info-box { background: #e3f2fd; padding: 15px; border-radius: 4px; margin: 15px 0; }
+              .error-box { background: #ffebee; padding: 15px; border-radius: 4px; margin: 15px 0; }
+              .success-box { background: #e8f5e8; padding: 15px; border-radius: 4px; margin: 15px 0; }
+              ul { margin: 10px 0; padding-left: 20px; }
+              .highlight { background: #fff3cd; padding: 2px 4px; border-radius: 2px; }
+              .code { font-family: monospace; background: #f8f9fa; padding: 2px 4px; border-radius: 2px; }
+            </style>
+          </head>
+          <body>
+            <div class="container">
+              <h1>🚫 Home Assistant 连接失败</h1>
+              
+              <div class="error-box">
+                <h3>❌ 问题描述</h3>
+                <p>无法连接到本地的Home Assistant实例。代理服务器尝试了多个地址但都失败了。</p>
+              </div>
 
-      if (tunnelClient) {
-        tunnelClient.send(errorResponse);
-      }
-    }
+              <div class="info-box">
+                <h3>🔍 尝试的地址</h3>
+                <ul>
+                  ${attemptedHosts.map(host => `<li><span class="code">${host}:${config.local_ha_port}</span></li>`).join('')}
+                </ul>
+              </div>
+
+              <div class="info-box">
+                <h3>📋 当前配置</h3>
+                <ul>
+                  <li><strong>local_ha_port:</strong> <span class="code">${config.local_ha_port}</span></li>
+                  <li><strong>已知HA地址:</strong> <span class="highlight">192.168.6.170:8123</span></li>
+                  <li><strong>client_id:</strong> <span class="code">${config.client_id}</span></li>
+                </ul>
+              </div>
+
+              <div class="success-box">
+                <h3>🔧 解决方案</h3>
+                <ol>
+                  <li><strong>检查 Home Assistant 状态：</strong> 确认 HA 正在运行: <span class="code">http://192.168.6.170:8123</span></li>
+                  <li><strong>检查网络配置：</strong> 编辑 <span class="code">configuration.yaml</span>: <span class="code">http: server_host: 0.0.0.0</span></li>
+                  <li><strong>验证连接：</strong> 在 HA 设备上测试: <span class="code">curl http://127.0.0.1:8123</span></li>
+                </ol>
+              </div>
+
+              <div class="info-box">
+                <h3>🐛 调试信息</h3>
+                <ul>
+                  <li><strong>请求URL:</strong> <span class="code">${message.url}</span></li>
+                  <li><strong>请求方法:</strong> <span class="code">${message.method}</span></li>
+                  <li><strong>时间戳:</strong> <span class="code">${new Date().toISOString()}</span></li>
+                  <li><strong>插件版本:</strong> <span class="code">1.0.7</span></li>
+                </ul>
+              </div>
+            </div>
+          </body>
+        </html>
+      `
+    };
+
+    tunnelClient.send(errorResponse);
+    Logger.error(`发送详细错误页面: ${message.request_id}`);
   }
 
   static getStatus() {
@@ -349,7 +397,8 @@ class TunnelManager {
         authenticated: status.authenticated,
         last_heartbeat: status.last_heartbeat,
         connection_attempts: status.connection_attempts,
-        status: connectionStatus
+        status: connectionStatus,
+        last_successful_host: this.lastSuccessfulHost
       };
     }
     return {
@@ -357,7 +406,8 @@ class TunnelManager {
       authenticated: false,
       last_heartbeat: null,
       connection_attempts: 0,
-      status: connectionStatus
+      status: connectionStatus,
+      last_successful_host: this.lastSuccessfulHost
     };
   }
 
@@ -369,36 +419,52 @@ class TunnelManager {
     connectionStatus = 'disconnected';
   }
 
-  /**
-   * 测试本地Home Assistant连接
-   */
   static async testLocalConnection() {
-    const http = require('http');
-    
+    const targetHosts = this.getTargetHosts();
+
+    for (const hostname of targetHosts) {
+      try {
+        Logger.debug(`测试连接: ${hostname}:${config.local_ha_port}`);
+        const success = await this.testSingleHost(hostname);
+        if (success) {
+          Logger.info(`✅ 本地HA连接测试成功: ${hostname}:${config.local_ha_port}`);
+          this.lastSuccessfulHost = hostname;
+          return true;
+        }
+      } catch (error) {
+        Logger.debug(`测试 ${hostname} 失败: ${error.message}`);
+      }
+    }
+
+    Logger.error(`❌ 所有地址测试失败: ${targetHosts.join(', ')}`);
+    return false;
+  }
+
+  static testSingleHost(hostname) {
     return new Promise((resolve, reject) => {
+      const http = require('http');
+
       const options = {
-        hostname: '127.0.0.1',
+        hostname: hostname,
         port: config.local_ha_port,
         path: '/',
         method: 'GET',
-        timeout: 5000,
+        timeout: 3000,
         family: 4
       };
 
       const req = http.request(options, (res) => {
-        Logger.info(`本地HA连接测试成功: HTTP ${res.statusCode}`);
+        Logger.debug(`${hostname} 测试响应: HTTP ${res.statusCode}`);
         resolve(true);
       });
 
       req.on('error', (error) => {
-        Logger.error(`本地HA连接测试失败: ${error.message}`);
-        resolve(false);
+        reject(error);
       });
 
       req.on('timeout', () => {
-        Logger.error(`本地HA连接测试超时`);
         req.destroy();
-        resolve(false);
+        reject(new Error('连接超时'));
       });
 
       req.end();
@@ -406,22 +472,15 @@ class TunnelManager {
   }
 }
 
-/**
- * 代理服务器类
- */
 class ProxyServer {
   static createProxyServer() {
     const app = new Koa();
     const router = new Router();
 
-    // 中间件
     app.use(cors());
     app.use(bodyParser());
-
-    // 静态文件服务
     app.use(koaStatic(path.join(__dirname, 'public')));
 
-    // 错误处理
     app.use(async (ctx, next) => {
       try {
         await next();
@@ -432,7 +491,6 @@ class ProxyServer {
       }
     });
 
-    // 认证中间件
     const authMiddleware = async (ctx, next) => {
       const token = ctx.headers.authorization?.replace('Bearer ', '');
       if (!token) {
@@ -452,12 +510,10 @@ class ProxyServer {
       await next();
     };
 
-    // 管理界面路由
     router.get('/', async (ctx) => {
       ctx.redirect('/index.html');
     });
 
-    // 登录接口
     router.post('/api/auth/login', async (ctx) => {
       const { username, password } = ctx.request.body;
 
@@ -477,11 +533,12 @@ class ProxyServer {
       ctx.body = {
         token,
         user: { username },
-        expires_in: 86400 // 24小时
+        expires_in: 86400
       };
 
       Logger.info(`用户 ${username} 登录成功`);
-    });        // 状态接口
+    });
+
     router.get('/api/status', authMiddleware, async (ctx) => {
       const tunnelStatus = TunnelManager.getStatus();
       ctx.body = {
@@ -490,6 +547,7 @@ class ProxyServer {
         authenticated: tunnelStatus.authenticated,
         last_heartbeat: tunnelStatus.last_heartbeat,
         connection_attempts: tunnelStatus.connection_attempts,
+        last_successful_host: tunnelStatus.last_successful_host,
         active_connections: activeConnections.size,
         server_host: config.server_host,
         server_port: config.server_port,
@@ -498,16 +556,14 @@ class ProxyServer {
       };
     });
 
-    // 健康检查接口
     router.get('/api/health', async (ctx) => {
       ctx.body = {
         status: 'ok',
         timestamp: Date.now(),
-        version: '1.0.0'
+        version: '1.0.7'
       };
     });
 
-    // 代理配置接口
     router.get('/api/config', authMiddleware, async (ctx) => {
       ctx.body = {
         server_host: config.server_host,
@@ -526,11 +582,10 @@ class ProxyServer {
   }
 
   static createHttpProxy() {
-    // 创建HTTP代理
     proxy = httpProxy.createProxyServer({
       target: `http://127.0.0.1:${config.local_ha_port}`,
       changeOrigin: true,
-      ws: true, // 支持WebSocket
+      ws: true,
       timeout: 30000
     });
 
@@ -545,7 +600,6 @@ class ProxyServer {
     proxy.on('proxyReq', (proxyReq, req, res) => {
       Logger.debug(`代理请求: ${req.method} ${req.url}`);
 
-      // 记录活跃连接
       const connectionId = `${req.socket.remoteAddress}:${req.socket.remotePort}`;
       activeConnections.set(connectionId, {
         timestamp: Date.now(),
@@ -557,7 +611,6 @@ class ProxyServer {
     proxy.on('proxyRes', (proxyRes, req, res) => {
       Logger.debug(`代理响应: ${proxyRes.statusCode} ${req.url}`);
 
-      // 清理连接记录
       const connectionId = `${req.socket.remoteAddress}:${req.socket.remotePort}`;
       activeConnections.delete(connectionId);
     });
@@ -566,41 +619,32 @@ class ProxyServer {
   }
 }
 
-/**
- * 主应用类
- */
 class TunnelProxyApp {
   static async start() {
     try {
       Logger.info('正在启动内网穿透代理服务...');
 
-      // 加载和验证配置
       ConfigManager.loadConfig();
       ConfigManager.validateConfig();
 
-      // 创建代理服务器
       const app = ProxyServer.createProxyServer();
       const httpProxy = ProxyServer.createHttpProxy();
 
-      // 启动HTTP服务器
       server = http.createServer(app.callback());
 
-      // 处理代理请求
       server.on('request', (req, res) => {
-        // 这里可以添加认证逻辑
         httpProxy.web(req, res);
       });
 
-      // 处理WebSocket升级
       server.on('upgrade', (req, socket, head) => {
         Logger.debug('WebSocket升级请求');
         httpProxy.ws(req, socket, head);
-      });            // 启动服务器
+      });
+
       server.listen(config.proxy_port, () => {
         Logger.info(`代理服务器已启动，监听端口: ${config.proxy_port}`);
       });
 
-      // 处理端口冲突
       server.on('error', (error) => {
         if (error.code === 'EADDRINUSE') {
           if (process.env.NODE_ENV === 'development') {
@@ -620,7 +664,6 @@ class TunnelProxyApp {
         }
       });
 
-      // 连接到中转服务器
       try {
         await TunnelManager.connectToServer();
       } catch (error) {
@@ -631,29 +674,27 @@ class TunnelProxyApp {
         }
       }
 
-      // 清理过期连接
       setInterval(() => {
         const now = Date.now();
         for (const [connectionId, connection] of activeConnections.entries()) {
-          if (now - connection.timestamp > 300000) { // 5分钟超时
+          if (now - connection.timestamp > 300000) {
             activeConnections.delete(connectionId);
           }
         }
-      }, 60000); // 1分钟清理一次
+      }, 60000);
 
       Logger.info('内网穿透代理服务启动成功！');
 
-      // 测试本地Home Assistant连接
       setTimeout(async () => {
         Logger.info('正在测试本地Home Assistant连接...');
-        const connectionOk = await TunnelProxy.testLocalConnection();
+        const connectionOk = await TunnelManager.testLocalConnection();
         if (connectionOk) {
-          Logger.info(`✅ 本地Home Assistant连接正常 (127.0.0.1:${config.local_ha_port})`);
+          Logger.info(`✅ 本地Home Assistant连接正常 (最佳地址: ${TunnelManager.lastSuccessfulHost}:${config.local_ha_port})`);
         } else {
-          Logger.warn(`⚠️  无法连接到本地Home Assistant (127.0.0.1:${config.local_ha_port})`);
-          Logger.warn('请检查Home Assistant是否正在运行并确认端口配置');
+          Logger.warn(`⚠️  无法连接到本地Home Assistant`);
+          Logger.warn('请检查Home Assistant是否正在运行并确认网络配置');
         }
-      }, 2000); // 启动2秒后测试
+      }, 2000);
 
     } catch (error) {
       Logger.error(`服务启动失败: ${error.message}`);
@@ -682,7 +723,6 @@ class TunnelProxyApp {
   }
 }
 
-// 优雅关闭
 process.on('SIGTERM', () => {
   Logger.info('收到SIGTERM信号，正在优雅关闭...');
   TunnelProxyApp.stop().then(() => {
@@ -706,7 +746,6 @@ process.on('unhandledRejection', (reason, promise) => {
   Logger.error(`未处理的Promise拒绝: ${reason}`);
 });
 
-// 启动应用
 if (require.main === module) {
   TunnelProxyApp.start();
 }
