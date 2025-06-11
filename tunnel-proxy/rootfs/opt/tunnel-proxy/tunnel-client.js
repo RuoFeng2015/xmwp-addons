@@ -213,10 +213,20 @@ class TunnelClient extends EventEmitter {
 
       case 'proxy_response':
         this.emit('proxy_response', message);
+        break;      case 'tunnel_data':
+        this.emit('tunnel_data', message);
         break;
 
-      case 'tunnel_data':
-        this.emit('tunnel_data', message);
+      case 'websocket_upgrade':
+        this.emit('websocket_upgrade', message);
+        break;
+
+      case 'websocket_data':
+        this.emit('websocket_data', message);
+        break;
+
+      case 'websocket_close':
+        this.emit('websocket_close', message);
         break;
 
       case 'error':

@@ -26,6 +26,7 @@ let tunnelClient = null;
 let connectionStatus = 'disconnected';
 let lastHeartbeat = null;
 let activeConnections = new Map();
+let wsConnections = new Map(); // WebSocket连接存储
 
 /**
  * 日志工具类
@@ -145,6 +146,7 @@ class AuthManager {
  */
 class TunnelManager {
   static lastSuccessfulHost = null;
+  static wsConnections = wsConnections; // 引用全局WebSocket连接map
 
   static async connectToServer() {
     return new Promise((resolve, reject) => {
@@ -191,10 +193,20 @@ class TunnelManager {
           Logger.error(`隧道连接错误: ${error.message}`);
           connectionStatus = 'error';
           reject(error);
+        });        tunnelClient.on('proxy_request', (message) => {
+          this.handleProxyRequest(message);
         });
 
-        tunnelClient.on('proxy_request', (message) => {
-          this.handleProxyRequest(message);
+        tunnelClient.on('websocket_upgrade', (message) => {
+          this.handleWebSocketUpgrade(message);
+        });
+
+        tunnelClient.on('websocket_data', (message) => {
+          this.handleWebSocketData(message);
+        });
+
+        tunnelClient.on('websocket_close', (message) => {
+          this.handleWebSocketClose(message);
         });
 
         tunnelClient.connect();
@@ -209,6 +221,40 @@ class TunnelManager {
   static handleProxyRequest(message) {
     Logger.debug(`处理代理请求: ${message.request_id} ${message.method} ${message.url}`);
     this.smartConnectToHA(message);
+  }
+
+  static handleWebSocketUpgrade(message) {
+    Logger.debug(`处理WebSocket升级请求: ${message.upgrade_id} ${message.url}`);
+    this.smartConnectWebSocketToHA(message);
+  }
+
+  static handleWebSocketData(message) {
+    const { upgrade_id, data } = message;
+    const wsConnection = this.wsConnections.get(upgrade_id);
+    
+    if (wsConnection && wsConnection.socket) {
+      try {
+        const binaryData = Buffer.from(data, 'base64');
+        wsConnection.socket.write(binaryData);
+      } catch (error) {
+        Logger.error(`WebSocket数据转发失败: ${error.message}`);
+      }
+    } else {
+      Logger.warn(`未找到WebSocket连接: ${upgrade_id}`);
+    }
+  }
+
+  static handleWebSocketClose(message) {
+    const { upgrade_id } = message;
+    const wsConnection = this.wsConnections.get(upgrade_id);
+    
+    if (wsConnection) {
+      Logger.debug(`关闭WebSocket连接: ${upgrade_id}`);
+      if (wsConnection.socket) {
+        wsConnection.socket.destroy();
+      }
+      this.wsConnections.delete(upgrade_id);
+    }
   }
 
   static async smartConnectToHA(message) {
@@ -478,6 +524,144 @@ class TunnelManager {
 
       req.end();
     });
+  }
+
+  static async smartConnectWebSocketToHA(message) {
+    const targetHosts = this.lastSuccessfulHost
+      ? [this.lastSuccessfulHost, ...this.getTargetHosts().filter(h => h !== this.lastSuccessfulHost)]
+      : this.getTargetHosts();
+
+    Logger.debug(`智能连接WebSocket到Home Assistant，端口: ${config.local_ha_port}`);
+    Logger.debug(`尝试顺序: ${targetHosts.join(', ')}`);
+
+    for (const hostname of targetHosts) {
+      try {
+        Logger.debug(`尝试WebSocket连接: ${hostname}:${config.local_ha_port}`);
+        const success = await this.attemptWebSocketConnection(message, hostname);
+        if (success) {
+          Logger.info(`✅ WebSocket成功连接到Home Assistant: ${hostname}:${config.local_ha_port}`);
+          if (this.lastSuccessfulHost !== hostname) {
+            this.lastSuccessfulHost = hostname;
+            Logger.info(`🎯 记住成功地址: ${hostname}`);
+          }
+          return;
+        }
+      } catch (error) {
+        Logger.debug(`❌ WebSocket ${hostname} 连接失败: ${error.message}`);
+        continue;
+      }
+    }
+
+    this.sendWebSocketUpgradeError(message, targetHosts);
+  }
+
+  static attemptWebSocketConnection(message, hostname) {
+    return new Promise((resolve, reject) => {
+      const WebSocket = require('ws');
+
+      // 构建WebSocket URL
+      const protocol = config.local_ha_port === 443 ? 'wss' : 'ws';
+      const wsUrl = `${protocol}://${hostname}:${config.local_ha_port}${message.url}`;
+
+      Logger.debug(`尝试WebSocket连接: ${wsUrl}`);
+
+      // 准备头信息
+      const headers = { ...message.headers };
+      headers['host'] = `${hostname}:${config.local_ha_port}`;
+      delete headers['connection'];
+      delete headers['upgrade'];
+
+      const ws = new WebSocket(wsUrl, {
+        headers: headers,
+        timeout: 5000
+      });
+
+      let resolved = false;
+
+      ws.on('open', () => {
+        if (resolved) return;
+        resolved = true;
+
+        Logger.info(`WebSocket连接建立成功: ${hostname}:${config.local_ha_port}`);
+
+        // 存储WebSocket连接
+        this.wsConnections.set(message.upgrade_id, {
+          socket: ws,
+          hostname: hostname,
+          timestamp: Date.now()
+        });
+
+        // 发送升级成功响应
+        const response = {
+          type: 'websocket_upgrade_response',
+          upgrade_id: message.upgrade_id,
+          status_code: 101,
+          headers: {
+            'upgrade': 'websocket',
+            'connection': 'upgrade',
+            'sec-websocket-accept': 'dummy' // 实际值由WebSocket库处理
+          }
+        };
+
+        tunnelClient.send(response);
+
+        // 设置数据转发
+        this.setupWebSocketDataForwarding(ws, message.upgrade_id);
+
+        resolve(true);
+      });
+
+      ws.on('error', (error) => {
+        if (resolved) return;
+        resolved = true;
+        Logger.debug(`WebSocket连接失败 ${hostname}: ${error.message}`);
+        reject(error);
+      });
+
+      ws.on('close', () => {
+        Logger.debug(`WebSocket连接关闭: ${hostname}`);
+        this.wsConnections.delete(message.upgrade_id);
+        
+        // 通知服务器连接关闭
+        const response = {
+          type: 'websocket_close',
+          upgrade_id: message.upgrade_id
+        };
+        tunnelClient.send(response);
+      });
+
+      setTimeout(() => {
+        if (!resolved) {
+          resolved = true;
+          ws.close();
+          reject(new Error('WebSocket连接超时'));
+        }
+      }, 5000);
+    });
+  }
+
+  static setupWebSocketDataForwarding(ws, upgradeId) {
+    // Home Assistant -> 隧道服务器
+    ws.on('message', (data) => {
+      const response = {
+        type: 'websocket_data',
+        upgrade_id: upgradeId,
+        data: data.toString('base64') // 使用base64编码传输
+      };
+      tunnelClient.send(response);
+    });
+  }
+
+  static sendWebSocketUpgradeError(message, attemptedHosts) {
+    const errorResponse = {
+      type: 'websocket_upgrade_response',
+      upgrade_id: message.upgrade_id,
+      status_code: 502,
+      headers: { 'content-type': 'text/html; charset=utf-8' },
+    };
+
+    tunnelClient.send(errorResponse);
+    Logger.error(`WebSocket升级失败，尝试的主机: ${attemptedHosts.join(', ')}`);
   }
 }
 
