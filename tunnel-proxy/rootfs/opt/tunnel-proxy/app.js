@@ -216,20 +216,20 @@ class TunnelManager {
       const http = require('http');
       const https = require('https');
       const url = require('url');
-      
-      // 构建目标URL
-      const targetUrl = `http://localhost:${config.local_ha_port}${message.url}`;
+        // 构建目标URL - 强制使用IPv4地址
+      const targetUrl = `http://127.0.0.1:${config.local_ha_port}${message.url}`;
       const parsedUrl = url.parse(targetUrl);
       
       Logger.debug(`转发请求到: ${targetUrl}`);
 
-      // 创建请求选项
+      // 创建请求选项 - 强制使用IPv4
       const options = {
-        hostname: parsedUrl.hostname,
-        port: parsedUrl.port || 80,
-        path: parsedUrl.path,
+        hostname: '127.0.0.1',  // 强制IPv4
+        port: config.local_ha_port,
+        path: message.url,  // 使用原始URL路径
         method: message.method,
-        headers: { ...message.headers }
+        headers: { ...message.headers },
+        family: 4  // 强制IPv4
       };
 
       // 移除可能导致问题的头信息
@@ -260,19 +260,40 @@ class TunnelManager {
           tunnelClient.send(response);
           Logger.debug(`代理响应已发送: ${message.request_id}`);
         });
-      });
-
-      // 处理请求错误
+      });      // 处理请求错误
       proxyReq.on('error', (error) => {
         Logger.error(`代理请求失败: ${error.message}`);
+        Logger.error(`目标地址: 127.0.0.1:${config.local_ha_port}`);
+        Logger.error(`请确认Home Assistant正在运行并监听端口${config.local_ha_port}`);
         
         // 发送错误响应
         const errorResponse = {
           type: 'proxy_response',
           request_id: message.request_id,
-          status_code: 500,
-          headers: { 'content-type': 'text/plain' },
-          body: `Proxy Error: ${error.message}`
+          status_code: 502,
+          headers: { 'content-type': 'text/html; charset=utf-8' },
+          body: `
+            <html>
+              <head><title>代理错误</title></head>
+              <body>
+                <h1>内网穿透代理错误</h1>
+                <p><strong>错误信息:</strong> ${error.message}</p>
+                <p><strong>目标地址:</strong> 127.0.0.1:${config.local_ha_port}</p>
+                <p><strong>可能原因:</strong></p>
+                <ul>
+                  <li>Home Assistant未运行或未在端口${config.local_ha_port}监听</li>
+                  <li>防火墙阻止了连接</li>
+                  <li>Home Assistant配置了特定的绑定地址</li>
+                </ul>
+                <p><strong>解决方案:</strong></p>
+                <ul>
+                  <li>检查Home Assistant是否正常运行</li>
+                  <li>确认Home Assistant监听在正确的端口</li>
+                  <li>检查插件配置中的local_ha_port设置</li>
+                </ul>
+              </body>
+            </html>
+          `
         };
 
         tunnelClient.send(errorResponse);
@@ -346,6 +367,42 @@ class TunnelManager {
       tunnelClient = null;
     }
     connectionStatus = 'disconnected';
+  }
+
+  /**
+   * 测试本地Home Assistant连接
+   */
+  static async testLocalConnection() {
+    const http = require('http');
+    
+    return new Promise((resolve, reject) => {
+      const options = {
+        hostname: '127.0.0.1',
+        port: config.local_ha_port,
+        path: '/',
+        method: 'GET',
+        timeout: 5000,
+        family: 4
+      };
+
+      const req = http.request(options, (res) => {
+        Logger.info(`本地HA连接测试成功: HTTP ${res.statusCode}`);
+        resolve(true);
+      });
+
+      req.on('error', (error) => {
+        Logger.error(`本地HA连接测试失败: ${error.message}`);
+        resolve(false);
+      });
+
+      req.on('timeout', () => {
+        Logger.error(`本地HA连接测试超时`);
+        req.destroy();
+        resolve(false);
+      });
+
+      req.end();
+    });
   }
 }
 
@@ -585,6 +642,18 @@ class TunnelProxyApp {
       }, 60000); // 1分钟清理一次
 
       Logger.info('内网穿透代理服务启动成功！');
+
+      // 测试本地Home Assistant连接
+      setTimeout(async () => {
+        Logger.info('正在测试本地Home Assistant连接...');
+        const connectionOk = await TunnelProxy.testLocalConnection();
+        if (connectionOk) {
+          Logger.info(`✅ 本地Home Assistant连接正常 (127.0.0.1:${config.local_ha_port})`);
+        } else {
+          Logger.warn(`⚠️  无法连接到本地Home Assistant (127.0.0.1:${config.local_ha_port})`);
+          Logger.warn('请检查Home Assistant是否正在运行并确认端口配置');
+        }
+      }, 2000); // 启动2秒后测试
 
     } catch (error) {
       Logger.error(`服务启动失败: ${error.message}`);
