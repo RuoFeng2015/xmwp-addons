@@ -2,37 +2,25 @@
 ARG BUILD_FROM
 FROM $BUILD_FROM
 
-# 设置环境变量
-ENV \
-  S6_BEHAVIOUR_IF_STAGE2_FAILS=2 \
-  S6_CMD_WAIT_FOR_SERVICES=1
-
-# 安装Node.js和npm，使用国内镜像加速
-RUN \
-  apk add --no-cache \
-  nodejs \
-  npm \
-  curl \
-  ca-certificates \
-  && npm config set registry https://registry.npmmirror.com \
-  && npm config set disturl https://npmmirror.com/dist \
-  && npm config set electron_mirror https://npmmirror.com/mirrors/electron/ \
-  && npm config set sass_binary_site https://npmmirror.com/mirrors/node-sass/ \
-  && npm config set phantomjs_cdnurl https://npmmirror.com/mirrors/phantomjs/
+# 安装基础包
+RUN apk add --no-cache nodejs npm curl
 
 # 创建应用目录
 WORKDIR /opt/tunnel-proxy
 
-# 复制应用文件
+# 复制package.json先，利用Docker缓存
+COPY rootfs/opt/tunnel-proxy/package.json ./
+
+# 配置淘宝镜像并安装依赖
+RUN npm config set registry https://registry.npmmirror.com && \
+    npm install --production
+
+# 复制所有应用文件
 COPY rootfs /
 
-# 安装依赖
-WORKDIR /opt/tunnel-proxy
-RUN npm install --only=production --no-audit --no-fund
-
 # 设置执行权限
-RUN chmod a+x /etc/services.d/tunnel-proxy/run \
-  && chmod a+x /etc/services.d/tunnel-proxy/finish
+RUN chmod +x /etc/services.d/tunnel-proxy/run && \
+    chmod +x /etc/services.d/tunnel-proxy/finish
 
 # 构建参数
 ARG BUILD_ARCH

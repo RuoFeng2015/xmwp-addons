@@ -85,6 +85,45 @@ permission denied
 chmod +x /usr/share/hassio/addons/local/tunnel-proxy/rootfs/etc/services.d/tunnel-proxy/run
 ```
 
+### 5. Docker构建失败错误
+
+#### 错误信息：
+```
+The command '/bin/ash -o pipefail -c apk add --no-cache nodejs npm curl ca-certificates && npm config set registry...' returned a non-zero code: 1
+```
+
+#### 原因：
+- Docker构建过程中包安装失败
+- npm配置命令执行失败
+- 网络连接在构建时中断
+
+#### 解决方案：
+
+##### 方案A：清理Docker缓存并重试
+```bash
+# SSH到Home Assistant
+docker system prune -f
+docker builder prune -f
+ha supervisor restart
+```
+
+##### 方案B：检查系统资源
+```bash
+# 检查磁盘空间
+df -h
+# 检查内存使用
+free -h
+```
+
+##### 方案C：手动重建插件
+1. 删除当前插件
+2. 重启Home Assistant
+3. 清理Docker缓存
+4. 重新安装插件
+
+##### 方案D：使用简化版本
+如果问题持续，请在GitHub Issues中反馈，我们将提供预构建版本。
+
 ## 🚀 快速修复步骤
 
 ### 步骤1：重启督导程序
