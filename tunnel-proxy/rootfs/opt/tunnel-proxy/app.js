@@ -650,16 +650,29 @@ class TunnelManager {
       }, 5000);
     });
   }
-
   static setupWebSocketDataForwarding(ws, upgradeId) {
+    Logger.debug(`设置WebSocket数据转发: ${upgradeId}`);
+    
     // Home Assistant -> 隧道服务器
     ws.on('message', (data) => {
+      Logger.debug(`WebSocket收到消息: ${upgradeId}, 长度: ${data.length}, 类型: ${typeof data}`);
+      Logger.debug(`消息内容: ${data.toString()}`);
+      
       const response = {
         type: 'websocket_data',
         upgrade_id: upgradeId,
         data: data.toString('base64') // 使用base64编码传输
       };
       tunnelClient.send(response);
+      Logger.debug(`已转发WebSocket消息: ${upgradeId}`);
+    });
+
+    ws.on('close', (code, reason) => {
+      Logger.debug(`WebSocket连接关闭: ${upgradeId}, code: ${code}, reason: ${reason}`);
+    });
+
+    ws.on('error', (error) => {
+      Logger.error(`WebSocket连接错误: ${upgradeId}, error: ${error.message}`);
     });
   }
 
