@@ -217,11 +217,10 @@ class TunnelManager {
       }
     });
   }
-
   static handleProxyRequest(message) {
-    Logger.debug(`处理代理请求: ${message.request_id} ${message.method} ${message.url}`);
+    // Logger.debug(`处理代理请求: ${message.request_id} ${message.method} ${message.url}`);
     this.smartConnectToHA(message);
-  }  static handleWebSocketUpgrade(message) {
+  }static handleWebSocketUpgrade(message) {
     Logger.info(`🔄 处理WebSocket升级请求: ${message.upgrade_id} ${message.url}`);
     this.smartConnectWebSocketToHA(message);
   }  static handleWebSocketData(message) {
@@ -242,42 +241,40 @@ class TunnelManager {
       Logger.warn(`未找到WebSocket连接: ${upgrade_id}`);
     }
   }
-
   static handleWebSocketClose(message) {
     const { upgrade_id } = message;
     const wsConnection = this.wsConnections.get(upgrade_id);
 
     if (wsConnection) {
-      Logger.debug(`关闭WebSocket连接: ${upgrade_id}`);
+      // Logger.debug(`关闭WebSocket连接: ${upgrade_id}`);
       if (wsConnection.socket) {
         wsConnection.socket.destroy();
       }
       this.wsConnections.delete(upgrade_id);
     }
   }
-
   static async smartConnectToHA(message) {
     const targetHosts = this.lastSuccessfulHost
       ? [this.lastSuccessfulHost, ...this.getTargetHosts().filter(h => h !== this.lastSuccessfulHost)]
       : this.getTargetHosts();
 
-    Logger.debug(`智能连接Home Assistant，端口: ${config.local_ha_port}`);
-    Logger.debug(`尝试顺序: ${targetHosts.join(', ')}`);
+    // Logger.debug(`智能连接Home Assistant，端口: ${config.local_ha_port}`);
+    // Logger.debug(`尝试顺序: ${targetHosts.join(', ')}`);
 
     for (const hostname of targetHosts) {
       try {
-        Logger.debug(`尝试连接: ${hostname}:${config.local_ha_port}`);
+        // Logger.debug(`尝试连接: ${hostname}:${config.local_ha_port}`);
         const success = await this.attemptHAConnection(message, hostname);
         if (success) {
-          Logger.info(`✅ 成功连接到Home Assistant: ${hostname}:${config.local_ha_port}`);
+          // Logger.info(`✅ 成功连接到Home Assistant: ${hostname}:${config.local_ha_port}`);
           if (this.lastSuccessfulHost !== hostname) {
             this.lastSuccessfulHost = hostname;
-            Logger.info(`🎯 记住成功地址: ${hostname}`);
+            // Logger.info(`🎯 记住成功地址: ${hostname}`);
           }
           return;
         }
       } catch (error) {
-        Logger.debug(`❌ ${hostname} 连接失败: ${error.message}`);
+        // Logger.debug(`❌ ${hostname} 连接失败: ${error.message}`);
         continue;
       }
     }
@@ -296,8 +293,7 @@ class TunnelManager {
       '192.168.1.170',
       '10.0.0.170'
     ];
-  }
-  static attemptHAConnection(message, hostname) {
+  }  static attemptHAConnection(message, hostname) {
     return new Promise((resolve, reject) => {
       const http = require('http');
 
@@ -322,11 +318,11 @@ class TunnelManager {
         options.headers['user-agent'] = 'HomeAssistant-Tunnel-Proxy/1.0.8';
       }
 
-      Logger.debug(`${hostname} 请求头: ${JSON.stringify(options.headers, null, 2)}`);
+      // Logger.debug(`${hostname} 请求头: ${JSON.stringify(options.headers, null, 2)}`);
 
       const proxyReq = http.request(options, (proxyRes) => {
-        Logger.info(`${hostname} 响应: HTTP ${proxyRes.statusCode} ${proxyRes.statusMessage}`);
-        Logger.debug(`${hostname} 响应头: ${JSON.stringify(proxyRes.headers, null, 2)}`);
+        // Logger.info(`${hostname} 响应: HTTP ${proxyRes.statusCode} ${proxyRes.statusMessage}`);
+        // Logger.debug(`${hostname} 响应头: ${JSON.stringify(proxyRes.headers, null, 2)}`);
 
         let responseBody = Buffer.alloc(0);
         proxyRes.on('data', chunk => {
@@ -341,13 +337,13 @@ class TunnelManager {
           };
 
           tunnelClient.send(response);
-          Logger.info(`✅ 代理成功: ${message.request_id} via ${hostname}:${config.local_ha_port} (${proxyRes.statusCode})`);
+          // Logger.info(`✅ 代理成功: ${message.request_id} via ${hostname}:${config.local_ha_port} (${proxyRes.statusCode})`);
           resolve(true);
         });
       });
 
       proxyReq.on('error', (error) => {
-        Logger.debug(`${hostname} 请求错误: ${error.message}`);
+        // Logger.debug(`${hostname} 请求错误: ${error.message}`);
         reject(error);
       });
 
@@ -470,25 +466,24 @@ class TunnelManager {
     }
     connectionStatus = 'disconnected';
   }
-
   static async testLocalConnection() {
     const targetHosts = this.getTargetHosts();
 
     for (const hostname of targetHosts) {
       try {
-        Logger.debug(`测试连接: ${hostname}:${config.local_ha_port}`);
+        // Logger.debug(`测试连接: ${hostname}:${config.local_ha_port}`);
         const success = await this.testSingleHost(hostname);
         if (success) {
-          Logger.info(`✅ 本地HA连接测试成功: ${hostname}:${config.local_ha_port}`);
+          // Logger.info(`✅ 本地HA连接测试成功: ${hostname}:${config.local_ha_port}`);
           this.lastSuccessfulHost = hostname;
           return true;
         }
       } catch (error) {
-        Logger.debug(`测试 ${hostname} 失败: ${error.message}`);
+        // Logger.debug(`测试 ${hostname} 失败: ${error.message}`);
       }
     }
 
-    Logger.error(`❌ 所有地址测试失败: ${targetHosts.join(', ')}`);
+    // Logger.error(`❌ 所有地址测试失败: ${targetHosts.join(', ')}`);
     return false;
   }
   static testSingleHost(hostname) {
@@ -505,10 +500,8 @@ class TunnelManager {
           'host': `${hostname}:${config.local_ha_port}`,
           'user-agent': 'HomeAssistant-Tunnel-Proxy/1.0.8'
         }
-      };
-
-      const req = http.request(options, (res) => {
-        Logger.debug(`${hostname} 测试响应: HTTP ${res.statusCode} ${res.statusMessage}`);
+      };      const req = http.request(options, (res) => {
+        // Logger.debug(`${hostname} 测试响应: HTTP ${res.statusCode} ${res.statusMessage}`);
         resolve(true);
       });
 
@@ -523,18 +516,17 @@ class TunnelManager {
 
       req.end();
     });
-  }
-  static async smartConnectWebSocketToHA(message) {
+  }  static async smartConnectWebSocketToHA(message) {
     const targetHosts = this.lastSuccessfulHost
       ? [this.lastSuccessfulHost, ...this.getTargetHosts().filter(h => h !== this.lastSuccessfulHost)]
       : this.getTargetHosts();
 
-    Logger.debug(`智能连接WebSocket到Home Assistant，端口: ${config.local_ha_port}`);
-    Logger.debug(`尝试顺序: ${targetHosts.join(', ')}`);
+    // Logger.debug(`智能连接WebSocket到Home Assistant，端口: ${config.local_ha_port}`);
+    // Logger.debug(`尝试顺序: ${targetHosts.join(', ')}`);
 
     for (const hostname of targetHosts) {
       try {
-        Logger.debug(`尝试WebSocket连接: ${hostname}:${config.local_ha_port}`);
+        // Logger.debug(`尝试WebSocket连接: ${hostname}:${config.local_ha_port}`);
         const success = await this.attemptWebSocketConnection(message, hostname);
         if (success) {
           Logger.info(`✅ WebSocket成功连接到Home Assistant: ${hostname}:${config.local_ha_port}`);
@@ -545,7 +537,7 @@ class TunnelManager {
           return;
         }
       } catch (error) {
-        Logger.debug(`❌ WebSocket ${hostname} 连接失败: ${error.message}`);
+        // Logger.debug(`❌ WebSocket ${hostname} 连接失败: ${error.message}`);
         continue;
       }
     }
@@ -558,10 +550,9 @@ class TunnelManager {
       const WebSocket = require('ws');
 
       // 构建WebSocket URL
-      const protocol = config.local_ha_port === 443 ? 'wss' : 'ws';
-      const wsUrl = `${protocol}://${hostname}:${config.local_ha_port}${message.url}`;
+      const protocol = config.local_ha_port === 443 ? 'wss' : 'ws';      const wsUrl = `${protocol}://${hostname}:${config.local_ha_port}${message.url}`;
 
-      Logger.debug(`尝试WebSocket连接: ${wsUrl}`);
+      // Logger.debug(`尝试WebSocket连接: ${wsUrl}`);
 
       // 准备头信息
       const headers = { ...message.headers };
@@ -620,10 +611,10 @@ class TunnelManager {
         });
 
         resolve(true);
-      }); ws.on('error', (error) => {
+      });      ws.on('error', (error) => {
         if (resolved) return;
         resolved = true;
-        Logger.debug(`WebSocket连接失败 ${hostname}: ${error.message}`);
+        // Logger.debug(`WebSocket连接失败 ${hostname}: ${error.message}`);
 
         // 发送错误响应
         const errorResponse = {
@@ -633,11 +624,11 @@ class TunnelManager {
           headers: {}
         };
         tunnelClient.send(errorResponse);
-        Logger.debug(`发送WebSocket升级错误响应: ${message.upgrade_id}, 状态: 502`);
+        // Logger.debug(`发送WebSocket升级错误响应: ${message.upgrade_id}, 状态: 502`);
 
         reject(error);
       });      ws.on('close', () => {
-        Logger.debug(`WebSocket连接关闭: ${hostname}`);
+        // Logger.debug(`WebSocket连接关闭: ${hostname}`);
         
         // 延迟删除连接和通知服务器，确保最后的消息能够转发完成
         setTimeout(() => {
@@ -663,7 +654,7 @@ class TunnelManager {
     });
   }  static setupWebSocketDataForwarding(ws, upgradeId) {
     // 此方法已被内联到 attemptWebSocketConnection 中，避免重复设置事件监听器
-    Logger.debug(`⚠️  setupWebSocketDataForwarding 被调用，但消息处理器已在连接时设置: ${upgradeId}`);
+    // Logger.debug(`⚠️  setupWebSocketDataForwarding 被调用，但消息处理器已在连接时设置: ${upgradeId}`);
     
     // 原有的代码已经移到 ws.on('open') 事件处理器中
     // 这里保留方法签名以防其他地方调用，但不执行任何操作
@@ -722,9 +713,7 @@ class ProxyServer {
 
     router.get('/', async (ctx) => {
       ctx.redirect('/index.html');
-    });
-
-    router.post('/api/auth/login', async (ctx) => {
+    });    router.post('/api/auth/login', async (ctx) => {
       const { username, password } = ctx.request.body;
 
       if (!username || !password) {
@@ -746,7 +735,7 @@ class ProxyServer {
         expires_in: 86400
       };
 
-      Logger.info(`用户 ${username} 登录成功`);
+      // Logger.info(`用户 ${username} 登录成功`);
     });
 
     router.get('/api/status', authMiddleware, async (ctx) => {
@@ -844,10 +833,8 @@ class TunnelProxyApp {
 
       server.on('request', (req, res) => {
         httpProxy.web(req, res);
-      });
-
-      server.on('upgrade', (req, socket, head) => {
-        Logger.debug('WebSocket升级请求');
+      });      server.on('upgrade', (req, socket, head) => {
+        // Logger.debug('WebSocket升级请求');
         httpProxy.ws(req, socket, head);
       });
 
