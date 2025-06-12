@@ -643,6 +643,13 @@ class TunnelManager {
         Logger.info(
           `📤 发送WebSocket升级响应: ${message.upgrade_id}, 状态: 101`
         )        // 立即设置消息处理器，避免时序问题
+        // 添加认证状态跟踪
+        let authenticationState = {
+          required: false,
+          response: null,
+          successful: false
+        }
+        
         ws.on('message', (data) => {
           Logger.info(
             `📥 WebSocket收到HA消息: ${message.upgrade_id}, 长度: ${data.length
@@ -651,17 +658,24 @@ class TunnelManager {
 
           // 检查是否是认证相关消息
           let isAuthMessage = false
+          let messageType = null
           try {
             const parsed = JSON.parse(data.toString())
+            messageType = parsed.type
             if (parsed.type === 'auth_required') {
               Logger.info(`🔐 HA要求WebSocket认证: ${message.upgrade_id}`)
+              authenticationState.required = true
               isAuthMessage = true
             } else if (parsed.type === 'auth_invalid') {
               Logger.warn(`❌ WebSocket认证失败: ${message.upgrade_id} - 请检查浏览器中的访问令牌是否有效`)
               Logger.info(`💡 提示：需要在HA中生成长期访问令牌，并在浏览器中正确配置`)
+              authenticationState.response = 'invalid'
+              authenticationState.successful = false
               isAuthMessage = true
             } else if (parsed.type === 'auth_ok') {
               Logger.info(`✅ WebSocket认证成功: ${message.upgrade_id}`)
+              authenticationState.response = 'ok'
+              authenticationState.successful = true
               isAuthMessage = true
             }
           } catch (e) {
@@ -672,18 +686,30 @@ class TunnelManager {
             type: 'websocket_data',
             upgrade_id: message.upgrade_id,
             data: data.toString('base64'), // 使用base64编码传输
-          }          // 确保消息转发完成，对于认证消息使用同步发送
+          }
+
+          // 确保消息转发完成，对于认证消息使用同步发送
           try {
             if (isAuthMessage) {
               // 认证消息立即发送，并确保网络缓冲区刷新
               tunnelClient.send(response)
-              // 对于认证消息，使用setImmediate确保立即处理
+              
+              // 对于认证消息，使用多重措施确保立即处理
               setImmediate(() => {
                 // 强制刷新网络缓冲区
                 if (tunnelClient.socket && typeof tunnelClient.socket._flush === 'function') {
                   tunnelClient.socket._flush()
                 }
               })
+              
+              // 对于auth_ok消息，额外确保传输
+              if (messageType === 'auth_ok') {
+                // 延迟一小段时间再次确认发送
+                setTimeout(() => {
+                  Logger.info(`🔄 再次确认auth_ok消息已发送: ${message.upgrade_id}`)
+                }, 10)
+              }
+              
               Logger.info(`📤 已立即转发WebSocket认证消息: ${message.upgrade_id}`)
             } else {
               tunnelClient.send(response)
@@ -711,24 +737,75 @@ class TunnelManager {
           status_code: 502,
           headers: {},
         }
-        tunnelClient.send(errorResponse)
-        // Logger.debug(`发送WebSocket升级错误响应: ${message.upgrade_id}, 状态: 502`);
-
-        reject(error)
+        tunnelClient.send(errorResponse)        // Logger.debug(`发送WebSocket升级错误响应: ${message.upgrade_id}, 状态: 502`);        reject(error)
       })
+
       ws.on('close', (code, reason) => {
         Logger.info(
           `🔴 WebSocket连接关闭: ${hostname}, upgrade_id: ${message.upgrade_id}, 代码: ${code}, 原因: ${reason || '无'}`
         )
 
-        // 分析关闭原因
-        if (code === 1000) {
-          Logger.info(`ℹ️  正常关闭 - 可能是认证失败或客户端主动断开`)
-        } else if (code === 1006) {
-          Logger.warn(`⚠️  异常关闭 - 可能的网络问题或服务器错误`)
+        // 根据认证状态和关闭原因分析连接关闭
+        let closeAnalysis = ''
+        let delayMs = 1000 // 默认延迟
+        
+        if (authenticationState.required) {
+          if (authenticationState.response === 'invalid') {
+            closeAnalysis = 'HA在认证失败后正常关闭连接（安全机制）'
+            delayMs = 1500 // 认证失败延迟稍长确保auth_invalid消息传输
+          } else if (authenticationState.response === 'ok') {
+            closeAnalysis = '认证成功后的连接关闭（可能是客户端主动断开或其他原因）'
+            delayMs = 2000 // 认证成功延迟更长确保稳定传输
+          } else if (authenticationState.response === null && code === 1000) {
+            closeAnalysis = 'HA在认证过程中关闭连接（可能是auth_invalid消息丢失或网络问题）'
+            delayMs = 1500 // 可能的认证失败情况
+          } else {
+            closeAnalysis = '认证过程中的异常关闭'
+            delayMs = 1000
+          }
+        } else {
+          if (code === 1000) {
+            closeAnalysis = '正常关闭（可能是客户端主动断开）'
+          } else if (code === 1006) {
+            closeAnalysis = '异常关闭（网络问题或服务器错误）'
+          } else {
+            closeAnalysis = `关闭代码: ${code}`
+          }
+        }
+          Logger.info(`ℹ️  ${closeAnalysis}`)
+
+        // 特殊处理：当检测到可能的auth_invalid消息丢失时，主动发送认证失败消息
+        if (authenticationState.required && authenticationState.response === null && code === 1000) {
+          Logger.warn(`🚨 检测到可能的auth_invalid消息丢失，主动发送认证失败消息`)
+          
+          try {
+            // 构造auth_invalid消息
+            const authInvalidMessage = {
+              type: 'auth_invalid',
+              message: '访问令牌无效或已过期'
+            }
+            
+            const response = {
+              type: 'websocket_data',
+              upgrade_id: message.upgrade_id,
+              data: Buffer.from(JSON.stringify(authInvalidMessage)).toString('base64')
+            }
+            
+            // 立即发送auth_invalid消息
+            tunnelClient.send(response)
+            Logger.info(`📤 已补发auth_invalid消息: ${message.upgrade_id}`)
+            
+            // 使用setImmediate确保消息优先处理
+            setImmediate(() => {
+              if (tunnelClient.socket && typeof tunnelClient.socket._flush === 'function') {
+                tunnelClient.socket._flush()
+              }
+            })
+          } catch (error) {
+            Logger.error(`❌ 发送补偿auth_invalid消息失败: ${error.message}`)
+          }
         }
 
-        // 增加延迟到1000ms，确保所有消息处理完成，特别是auth_invalid消息
         setTimeout(() => {
           this.wsConnections.delete(message.upgrade_id)
 
@@ -744,7 +821,7 @@ class TunnelManager {
           } catch (error) {
             Logger.error(`❌ 发送关闭通知失败: ${error.message}`)
           }
-        }, 1000) // 增加到1000ms延迟，确保最后的消息（如auth_invalid）能够转发完成
+        }, delayMs*5) // 使用基于认证状态的动态延迟
       })
 
       setTimeout(() => {
