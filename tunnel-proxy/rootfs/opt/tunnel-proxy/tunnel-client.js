@@ -23,10 +23,10 @@ class TunnelClient extends EventEmitter {
     this.isConnected = false;
     this.isAuthenticated = false;
     this.reconnectTimer = null;
-    this.heartbeatTimer = null;
-    this.lastHeartbeat = null;
+    this.heartbeatTimer = null;    this.lastHeartbeat = null;
     this.connectionAttempts = 0;
     this.maxReconnectAttempts = 10;
+    this.messageBuffer = ''; // 添加消息缓冲区
   }
 
   /**
@@ -73,7 +73,6 @@ class TunnelClient extends EventEmitter {
     // 开始连接
     this.socket.connect(this.options.port, this.options.host);
   }
-
   /**
    * 断开连接
    */
@@ -96,9 +95,11 @@ class TunnelClient extends EventEmitter {
       this.socket = null;
     }
 
+    // 重置消息缓冲区
+    this.messageBuffer = '';
+
     this.emit('disconnected');
   }
-
   /**
    * 处理断开连接
    */
@@ -112,6 +113,9 @@ class TunnelClient extends EventEmitter {
       clearInterval(this.heartbeatTimer);
       this.heartbeatTimer = null;
     }
+
+    // 重置消息缓冲区
+    this.messageBuffer = '';
 
     this.emit('disconnected');
 
@@ -168,20 +172,35 @@ class TunnelClient extends EventEmitter {
   send(message) {
     return this.sendMessage(message);
   }
-
   /**
    * 处理服务器数据
    */
   handleServerData(data) {
     try {
-      const messages = data.toString().split('\n').filter(msg => msg.trim());
+      // 将新数据添加到缓冲区
+      this.messageBuffer += data.toString();
 
-      for (const messageStr of messages) {
-        const message = JSON.parse(messageStr);
-        this.handleServerMessage(message);
+      // 处理完整的消息（以换行符分隔）
+      const lines = this.messageBuffer.split('\n');
+
+      // 保留最后一个可能不完整的消息
+      this.messageBuffer = lines.pop() || '';
+
+      // 处理完整的消息
+      for (const messageStr of lines) {
+        if (messageStr.trim()) {
+          try {
+            const message = JSON.parse(messageStr);
+            this.handleServerMessage(message);
+          } catch (parseError) {
+            this.emit('error', new Error(`JSON解析失败: ${parseError.message}, 消息内容: ${messageStr.substring(0, 100)}...`));
+          }
+        }
       }
     } catch (error) {
-      this.emit('error', new Error(`解析服务器消息失败: ${error.message}`));
+      this.emit('error', new Error(`处理服务器数据失败: ${error.message}`));
+      // 清空缓冲区以防止错误累积
+      this.messageBuffer = '';
     }
   }
 
