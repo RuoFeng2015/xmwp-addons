@@ -605,7 +605,19 @@ class TunnelManager {
           }
         };        tunnelClient.send(response);
         Logger.info(`📤 发送WebSocket升级响应: ${message.upgrade_id}, 状态: 101`);
-        this.setupWebSocketDataForwarding(ws, message.upgrade_id);
+        
+        // 立即设置消息处理器，避免时序问题
+        ws.on('message', (data) => {
+          Logger.info(`📥 WebSocket收到HA消息: ${message.upgrade_id}, 长度: ${data.length}, 内容: ${data.toString()}`);
+          
+          const response = {
+            type: 'websocket_data',
+            upgrade_id: message.upgrade_id,
+            data: data.toString('base64') // 使用base64编码传输
+          };
+          tunnelClient.send(response);
+          Logger.info(`📤 已转发WebSocket消息: ${message.upgrade_id}`);
+        });
 
         resolve(true);
       }); ws.on('error', (error) => {
@@ -647,26 +659,11 @@ class TunnelManager {
       }, 5000);
     });
   }  static setupWebSocketDataForwarding(ws, upgradeId) {
-    Logger.info(`🔗 设置WebSocket数据转发: ${upgradeId}`);
+    // 此方法已被内联到 attemptWebSocketConnection 中，避免重复设置事件监听器
+    Logger.debug(`⚠️  setupWebSocketDataForwarding 被调用，但消息处理器已在连接时设置: ${upgradeId}`);
     
-    // Home Assistant -> 隧道服务器
-    ws.on('message', (data) => {
-      Logger.info(`📥 WebSocket收到HA消息: ${upgradeId}, 长度: ${data.length}, 内容: ${data.toString()}`);
-      
-      const response = {
-        type: 'websocket_data',
-        upgrade_id: upgradeId,
-        data: data.toString('base64') // 使用base64编码传输
-      };
-      tunnelClient.send(response);
-      Logger.info(`📤 已转发WebSocket消息: ${upgradeId}`);
-    });    ws.on('close', (code, reason) => {
-      Logger.warn(`🔴 WebSocket连接关闭: ${upgradeId}, code: ${code}, reason: ${reason}`);
-    });
-
-    ws.on('error', (error) => {
-      Logger.error(`❌ WebSocket连接错误: ${upgradeId}, error: ${error.message}`);
-    });
+    // 原有的代码已经移到 ws.on('open') 事件处理器中
+    // 这里保留方法签名以防其他地方调用，但不执行任何操作
   }
 
   static sendWebSocketUpgradeError(message, attemptedHosts) {
