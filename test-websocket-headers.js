@@ -14,7 +14,7 @@ function testWebSocketHandshake() {
   const websocketAccept = crypto.createHash('sha1')
     .update(websocketKey + '258EAFA5-E914-47DA-95CA-C5AB0DC85B11')
     .digest('base64');
-  
+
   console.log(`2. 服务器应该返回的Sec-WebSocket-Accept: ${websocketAccept}`);
 
   // 验证魔法字符串
@@ -65,10 +65,10 @@ function testTunnelProxyWebSocketAccept() {
 
   // 计算Accept值（复制隧道代理的逻辑）
   const websocketKey = mockMessage.headers['sec-websocket-key'];
-  const websocketAccept = websocketKey ? 
+  const websocketAccept = websocketKey ?
     crypto.createHash('sha1')
       .update(websocketKey + '258EAFA5-E914-47DA-95CA-C5AB0DC85B11')
-      .digest('base64') : 
+      .digest('base64') :
     'dummy-accept-key';
 
   console.log(`\n计算的WebSocket Accept: ${websocketAccept}`);
@@ -98,7 +98,7 @@ function testWebSocketFrameFormat() {
   // 文本帧示例
   const textMessage = 'Hello WebSocket!';
   const textBuffer = Buffer.from(textMessage, 'utf8');
-  
+
   console.log(`文本消息: "${textMessage}"`);
   console.log(`UTF-8编码: ${textBuffer.toString('hex')}`);
   console.log(`Base64编码: ${textBuffer.toString('base64')}`);

@@ -15,19 +15,19 @@ async function testAllPossibleHosts() {
     '192.168.1.170',
     '10.0.0.170'
   ];
-  
+
   const port = 8123;
-  
+
   console.log('🔍 测试所有可能的Home Assistant地址...\n');
-  
+
   for (const host of targetHosts) {
     console.log(`测试 ${host}:${port}...`);
-    
+
     // 测试HTTP连接
     try {
       const httpResult = await testHTTP(host, port);
       console.log(`  HTTP: ${httpResult.success ? '✅' : '❌'} ${httpResult.message}`);
-      
+
       if (httpResult.success) {
         // 测试WebSocket连接
         try {
@@ -47,7 +47,7 @@ async function testAllPossibleHosts() {
     } catch (httpError) {
       console.log(`  HTTP: ❌ ${httpError.message}`);
     }
-    
+
     console.log('');
   }
 }
@@ -65,31 +65,31 @@ function testHTTP(hostname, port) {
       timeout: 3000,
       family: 4
     };
-    
+
     const req = http.request(options, (res) => {
       let body = '';
       res.on('data', chunk => body += chunk.toString());
       res.on('end', () => {
-        const isHA = body.includes('Home Assistant') || 
-                     body.includes('homeassistant') ||
-                     res.headers['server']?.includes('HomeAssistant');
-        
+        const isHA = body.includes('Home Assistant') ||
+          body.includes('homeassistant') ||
+          res.headers['server']?.includes('HomeAssistant');
+
         resolve({
           success: true,
           message: `HTTP ${res.statusCode} ${isHA ? '(Home Assistant)' : '(其他服务)'}`
         });
       });
     });
-    
+
     req.on('error', (error) => {
       resolve({ success: false, message: error.message });
     });
-    
+
     req.on('timeout', () => {
       req.destroy();
       resolve({ success: false, message: '连接超时' });
     });
-    
+
     req.end();
   });
 }
@@ -101,11 +101,11 @@ function testWebSocket(hostname, port) {
   return new Promise((resolve, reject) => {
     const wsUrl = `ws://${hostname}:${port}/api/websocket`;
     const ws = new WebSocket(wsUrl, { timeout: 5000 });
-    
+
     let messageCount = 0;
     const messages = [];
     let resolved = false;
-    
+
     ws.on('open', () => {
       // 发送认证消息
       const authMessage = JSON.stringify({
@@ -114,12 +114,12 @@ function testWebSocket(hostname, port) {
       });
       ws.send(authMessage);
     });
-    
+
     ws.on('message', (data) => {
       messageCount++;
       messages.push(data.toString());
     });
-    
+
     ws.on('close', () => {
       if (!resolved) {
         resolved = true;
@@ -131,14 +131,14 @@ function testWebSocket(hostname, port) {
         });
       }
     });
-    
+
     ws.on('error', (error) => {
       if (!resolved) {
         resolved = true;
         reject(error);
       }
     });
-    
+
     // 5秒后关闭连接
     setTimeout(() => {
       if (!resolved) {

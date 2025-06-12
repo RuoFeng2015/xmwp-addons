@@ -23,7 +23,7 @@ class TunnelClient extends EventEmitter {
     this.isConnected = false;
     this.isAuthenticated = false;
     this.reconnectTimer = null;
-    this.heartbeatTimer = null;    this.lastHeartbeat = null;
+    this.heartbeatTimer = null; this.lastHeartbeat = null;
     this.connectionAttempts = 0;
     this.maxReconnectAttempts = 10;
     this.messageBuffer = ''; // 添加消息缓冲区
@@ -157,7 +157,7 @@ class TunnelClient extends EventEmitter {
 
     try {
       const data = JSON.stringify(message) + '\n';
-      
+
       // 添加详细的发送日志 - 只保留WebSocket相关的
       if (message.type === 'websocket_data') {
         const decoded = Buffer.from(message.data, 'base64').toString();
@@ -169,9 +169,9 @@ class TunnelClient extends EventEmitter {
       // else {
       //   console.log(`🔄 [TunnelClient] 发送消息: ${message.type}, 长度: ${data.length}`);
       // }
-      
+
       this.socket.write(data);
-      
+
       // 只在WebSocket相关消息时显示写入确认
       if (message.type.startsWith('websocket_')) {
         console.log(`✅ [TunnelClient] WebSocket消息已写入socket`);

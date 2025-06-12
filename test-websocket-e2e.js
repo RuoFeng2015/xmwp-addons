@@ -26,7 +26,7 @@ class WebSocketE2ETest {
    */
   testWebSocketHeaders() {
     console.log('\n=== 测试WebSocket头计算 ===');
-    
+
     const testCases = [
       'dGhlIHNhbXBsZSBub25jZQ==',
       'x3JJHMbDL1EzLkh9GBhXDw==',
@@ -37,7 +37,7 @@ class WebSocketE2ETest {
       const accept = crypto.createHash('sha1')
         .update(key + '258EAFA5-E914-47DA-95CA-C5AB0DC85B11')
         .digest('base64');
-      
+
       this.log(`WebSocket Key ${index + 1}: ${key} => Accept: ${accept}`);
     });
   }
@@ -47,12 +47,12 @@ class WebSocketE2ETest {
    */
   async testRealWebSocketConnection() {
     console.log('\n=== 测试真实WebSocket连接 ===');
-    
+
     const testUrl = 'ws://localhost:3081/api/websocket';
-    
+
     try {
       this.log(`尝试连接到: ${testUrl}`);
-      
+
       const ws = new WebSocket(testUrl, {
         timeout: 5000,
         headers: {
@@ -66,14 +66,14 @@ class WebSocketE2ETest {
         ws.on('open', () => {
           connected = true;
           this.log('WebSocket连接成功建立');
-          
+
           // 发送测试消息
           const testMessage = JSON.stringify({
             type: 'test',
             message: 'Hello from E2E test',
             timestamp: Date.now()
           });
-          
+
           ws.send(testMessage);
           this.log(`发送测试消息: ${testMessage}`);
         });
@@ -114,10 +114,10 @@ class WebSocketE2ETest {
    */
   testWebSocketUpgradeRequest() {
     console.log('\n=== 测试WebSocket升级请求格式 ===');
-    
+
     const websocketKey = crypto.randomBytes(16).toString('base64');
     this.log(`生成的WebSocket Key: ${websocketKey}`);
-    
+
     const expectedAccept = crypto.createHash('sha1')
       .update(websocketKey + '258EAFA5-E914-47DA-95CA-C5AB0DC85B11')
       .digest('base64');
@@ -158,7 +158,7 @@ class WebSocketE2ETest {
    */
   async testRawWebSocketUpgrade() {
     console.log('\n=== 测试原始WebSocket升级 ===');
-    
+
     return new Promise((resolve, reject) => {
       const websocketKey = crypto.randomBytes(16).toString('base64');
       const expectedAccept = crypto.createHash('sha1')
@@ -180,13 +180,13 @@ class WebSocketE2ETest {
       };
 
       const req = http.request(options);
-      
+
       req.on('upgrade', (res, socket, head) => {
         this.log(`收到升级响应: ${res.statusCode} ${res.statusMessage}`);
-        
+
         const actualAccept = res.headers['sec-websocket-accept'];
         this.log(`服务器返回的Accept: ${actualAccept}`);
-        
+
         if (actualAccept === expectedAccept) {
           this.log('WebSocket Accept头验证成功 ✅');
         } else {
@@ -211,28 +211,28 @@ class WebSocketE2ETest {
    */
   async runAllTests() {
     console.log('🚀 开始WebSocket端到端测试\n');
-    
+
     try {
       // 基础头计算测试
       this.testWebSocketHeaders();
-      
+
       // 升级请求格式测试
       this.testWebSocketUpgradeRequest();
-      
+
       // 尝试原始升级测试
       try {
         await this.testRawWebSocketUpgrade();
       } catch (error) {
         this.log(`原始升级测试跳过: ${error.message}`);
       }
-      
+
       // 真实连接测试
       try {
         await this.testRealWebSocketConnection();
       } catch (error) {
         this.log(`真实连接测试跳过: ${error.message}`);
       }
-      
+
     } catch (error) {
       this.log(`测试过程中出现错误: ${error.message}`, false);
     }
@@ -246,15 +246,15 @@ class WebSocketE2ETest {
    */
   printTestSummary() {
     console.log('\n=== 测试总结 ===');
-    
+
     const successCount = this.testResults.filter(r => r.success).length;
     const totalCount = this.testResults.length;
-    
+
     console.log(`总测试数: ${totalCount}`);
     console.log(`成功: ${successCount}`);
     console.log(`失败: ${totalCount - successCount}`);
     console.log(`成功率: ${((successCount / totalCount) * 100).toFixed(1)}%`);
-    
+
     if (totalCount - successCount > 0) {
       console.log('\n失败的测试:');
       this.testResults.filter(r => !r.success).forEach(result => {

@@ -6,9 +6,9 @@ const WebSocket = require('ws');
  */
 async function testHAWebSocketAuthTiming() {
   console.log('🔍 测试HA WebSocket认证失败的消息时序...');
-  
+
   const ws = new WebSocket('ws://192.168.6.170:8123/api/websocket');
-  
+
   let messageCount = 0;
   let closeReceived = false;
   const messages = [];
@@ -25,18 +25,18 @@ async function testHAWebSocketAuthTiming() {
       timestamp: Date.now(),
       message: message
     });
-    
+
     console.log(`📥 收到HA消息 #${messageCount} [${new Date().toISOString()}]:`, message);
 
     if (message.type === 'auth_required') {
       console.log('🔐 HA要求认证，发送错误认证消息...');
-      
+
       // 使用错误的token测试认证失败情况
       const authMessage = {
         type: 'auth',
         access_token: 'invalid_token_for_test'
       };
-      
+
       console.log('📤 发送认证消息:', authMessage);
       ws.send(JSON.stringify(authMessage));
     }
@@ -47,13 +47,13 @@ async function testHAWebSocketAuthTiming() {
     const closeTime = Date.now();
     console.log(`❌ WebSocket连接关闭 [${new Date().toISOString()}]: code=${code}, reason=${reason?.toString()}`);
     console.log(`总共收到 ${messageCount} 条消息`);
-    
+
     if (messages.length >= 2) {
       const authInvalidTime = messages[1].timestamp;
       const timeDiff = closeTime - authInvalidTime;
       console.log(`⏱️  从收到auth_invalid到连接关闭的时间差: ${timeDiff}ms`);
     }
-    
+
     // 打印所有消息的时序
     console.log('\n📋 消息时序分析:');
     messages.forEach(msg => {

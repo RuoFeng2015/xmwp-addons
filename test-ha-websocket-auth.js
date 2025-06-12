@@ -5,9 +5,9 @@ const WebSocket = require('ws');
  */
 async function testHAWebSocketAuth() {
   console.log('🔍 测试HA WebSocket认证流程...');
-  
+
   const ws = new WebSocket('ws://192.168.6.170:8123/api/websocket');
-  
+
   let messageCount = 0;
   let authToken = null;
 
@@ -22,13 +22,13 @@ async function testHAWebSocketAuth() {
 
     if (message.type === 'auth_required') {
       console.log('🔐 HA要求认证，发送认证消息...');
-      
+
       // 使用错误的token测试认证失败情况
       const authMessage = {
         type: 'auth',
         access_token: 'invalid_token_for_test'
       };
-      
+
       console.log('📤 发送认证消息:', authMessage);
       ws.send(JSON.stringify(authMessage));
     }

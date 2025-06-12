@@ -23,7 +23,7 @@ class WebSocketUpgradeTest {
    */
   async testRawWebSocketUpgrade() {
     console.log('\n=== 测试原始WebSocket升级请求 ===');
-    
+
     return new Promise((resolve, reject) => {
       const websocketKey = crypto.randomBytes(16).toString('base64');
       const expectedAccept = crypto.createHash('sha1')
@@ -49,16 +49,16 @@ class WebSocketUpgradeTest {
       this.log(`连接到: ${options.host}:${options.port}${options.path}`);
 
       const req = http.request(options);
-      
+
       req.on('upgrade', (res, socket, head) => {
         this.log(`收到升级响应: ${res.statusCode} ${res.statusMessage}`);
-        
+
         // 检查响应头
         this.log(`响应头: ${JSON.stringify(res.headers, null, 2)}`);
-        
+
         const actualAccept = res.headers['sec-websocket-accept'];
         this.log(`服务器返回的Accept: ${actualAccept}`);
-        
+
         if (actualAccept === expectedAccept) {
           this.log('WebSocket Accept头验证成功 🎉');
         } else {
@@ -84,7 +84,7 @@ class WebSocketUpgradeTest {
 
       req.on('response', (res) => {
         this.log(`收到HTTP响应 (非升级): ${res.statusCode} ${res.statusMessage}`, false);
-        
+
         let body = '';
         res.on('data', chunk => body += chunk);
         res.on('end', () => {
@@ -114,11 +114,11 @@ class WebSocketUpgradeTest {
    */
   async testWebSocketLibrary() {
     console.log('\n=== 测试WebSocket库连接 ===');
-    
+
     return new Promise((resolve, reject) => {
       const wsUrl = 'ws://localhost:3081/api/websocket';
       this.log(`使用WebSocket库连接: ${wsUrl}`);
-      
+
       const ws = new WebSocket(wsUrl, {
         timeout: 10000,
         headers: {
@@ -131,17 +131,17 @@ class WebSocketUpgradeTest {
       ws.on('open', () => {
         connected = true;
         this.log('WebSocket连接成功建立 🎉');
-        
+
         // 发送测试消息
         const testMessage = JSON.stringify({
           type: 'test',
           message: 'Hello from WebSocket test',
           timestamp: Date.now()
         });
-        
+
         ws.send(testMessage);
         this.log(`发送测试消息: ${testMessage}`);
-        
+
         // 3秒后关闭连接
         setTimeout(() => {
           this.log('测试完成，关闭连接');
@@ -179,15 +179,15 @@ class WebSocketUpgradeTest {
    */
   printSummary() {
     console.log('\n=== 测试总结 ===');
-    
+
     const successCount = this.results.filter(r => r.success).length;
     const totalCount = this.results.length;
-    
+
     console.log(`总测试项: ${totalCount}`);
     console.log(`成功: ${successCount}`);
     console.log(`失败: ${totalCount - successCount}`);
     console.log(`成功率: ${((successCount / totalCount) * 100).toFixed(1)}%`);
-    
+
     if (totalCount - successCount > 0) {
       console.log('\n失败的测试项:');
       this.results.filter(r => !r.success).forEach(result => {
@@ -206,25 +206,25 @@ class WebSocketUpgradeTest {
    */
   async runAllTests() {
     console.log('🚀 开始WebSocket升级修复验证测试\n');
-    
+
     try {
       // 等待一下让服务器完全启动
       await new Promise(resolve => setTimeout(resolve, 2000));
-      
+
       // 测试原始HTTP升级
       try {
         await this.testRawWebSocketUpgrade();
       } catch (error) {
         this.log(`原始升级测试失败: ${error.message}`, false);
       }
-      
+
       // 测试WebSocket库连接
       try {
         await this.testWebSocketLibrary();
       } catch (error) {
         this.log(`WebSocket库测试失败: ${error.message}`, false);
       }
-      
+
     } catch (error) {
       this.log(`测试过程中发生错误: ${error.message}`, false);
     }

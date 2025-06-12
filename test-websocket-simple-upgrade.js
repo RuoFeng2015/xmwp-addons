@@ -31,17 +31,17 @@ const req = http.request(options);
 
 req.on('upgrade', (res, socket, head) => {
   console.log(`✅ 收到WebSocket升级响应: ${res.statusCode} ${res.statusMessage}`);
-  
+
   console.log('📋 响应头:');
   Object.entries(res.headers).forEach(([key, value]) => {
     console.log(`  ${key}: ${value}`);
   });
-  
+
   const actualAccept = res.headers['sec-websocket-accept'];
   console.log(`\n🔑 Accept头比较:`);
   console.log(`  期望: ${expectedAccept}`);
   console.log(`  实际: ${actualAccept}`);
-  
+
   if (actualAccept === expectedAccept) {
     console.log('✅ WebSocket Accept头验证成功！');
   } else {
@@ -54,7 +54,7 @@ req.on('upgrade', (res, socket, head) => {
 
 req.on('response', (res) => {
   console.log(`❌ 收到HTTP响应 (而非升级): ${res.statusCode} ${res.statusMessage}`);
-  
+
   let body = '';
   res.on('data', chunk => body += chunk);
   res.on('end', () => {
