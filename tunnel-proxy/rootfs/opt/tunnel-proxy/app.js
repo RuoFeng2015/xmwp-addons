@@ -580,14 +580,21 @@ class TunnelManager {
         if (resolved) return;
         resolved = true;
 
-        Logger.info(`WebSocket连接建立成功: ${hostname}:${config.local_ha_port}`);
-
-        // 存储WebSocket连接
+        Logger.info(`WebSocket连接建立成功: ${hostname}:${config.local_ha_port}`);        // 存储WebSocket连接
         this.wsConnections.set(message.upgrade_id, {
           socket: ws,
           hostname: hostname,
           timestamp: Date.now()
         });
+
+        // 计算正确的WebSocket Accept值
+        const crypto = require('crypto');
+        const websocketKey = message.headers['sec-websocket-key'];
+        const websocketAccept = websocketKey ? 
+          crypto.createHash('sha1')
+            .update(websocketKey + '258EAFA5-E914-47DA-95CA-C5AB0DC85B11')
+            .digest('base64') : 
+          'dummy-accept-key';
 
         // 发送升级成功响应
         const response = {
@@ -597,9 +604,9 @@ class TunnelManager {
           headers: {
             'upgrade': 'websocket',
             'connection': 'upgrade',
-            'sec-websocket-accept': 'dummy' // 实际值由WebSocket库处理
+            'sec-websocket-accept': websocketAccept
           }
-        }; tunnelClient.send(response);
+        };tunnelClient.send(response);
         Logger.debug(`发送WebSocket升级响应: ${message.upgrade_id}, 状态: 101`);
         this.setupWebSocketDataForwarding(ws, message.upgrade_id);
 
