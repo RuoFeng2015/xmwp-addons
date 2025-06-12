@@ -636,18 +636,21 @@ class TunnelManager {
         Logger.debug(`发送WebSocket升级错误响应: ${message.upgrade_id}, 状态: 502`);
 
         reject(error);
-      });
-
-      ws.on('close', () => {
+      });      ws.on('close', () => {
         Logger.debug(`WebSocket连接关闭: ${hostname}`);
-        this.wsConnections.delete(message.upgrade_id);
+        
+        // 延迟删除连接和通知服务器，确保最后的消息能够转发完成
+        setTimeout(() => {
+          this.wsConnections.delete(message.upgrade_id);
 
-        // 通知服务器连接关闭
-        const response = {
-          type: 'websocket_close',
-          upgrade_id: message.upgrade_id
-        };
-        tunnelClient.send(response);
+          // 通知服务器连接关闭
+          const response = {
+            type: 'websocket_close',
+            upgrade_id: message.upgrade_id
+          };
+          tunnelClient.send(response);
+          Logger.debug(`通知服务器WebSocket连接关闭: ${message.upgrade_id}`);
+        }, 100); // 100ms延迟，确保最后的消息能够处理完成
       });
 
       setTimeout(() => {
