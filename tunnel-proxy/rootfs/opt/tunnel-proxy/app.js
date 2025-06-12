@@ -224,16 +224,17 @@ class TunnelManager {
   }  static handleWebSocketUpgrade(message) {
     Logger.info(`🔄 处理WebSocket升级请求: ${message.upgrade_id} ${message.url}`);
     this.smartConnectWebSocketToHA(message);
-  }
-  static handleWebSocketData(message) {
+  }  static handleWebSocketData(message) {
     const { upgrade_id, data } = message;
     const wsConnection = this.wsConnections.get(upgrade_id);
 
     if (wsConnection && wsConnection.socket) {
       try {
         const binaryData = Buffer.from(data, 'base64');
-        Logger.info(`📨 WebSocket数据转发到HA: ${upgrade_id}, 长度: ${binaryData.length}`);
-        wsConnection.socket.write(binaryData);
+        Logger.info(`📨 WebSocket数据转发到HA: ${upgrade_id}, 长度: ${binaryData.length}, 内容: ${binaryData.toString()}`);
+        // 使用WebSocket的send方法而不是socket的write方法
+        wsConnection.socket.send(binaryData);
+        Logger.info(`✅ WebSocket数据已发送到HA: ${upgrade_id}`);
       } catch (error) {
         Logger.error(`WebSocket数据转发失败: ${error.message}`);
       }
