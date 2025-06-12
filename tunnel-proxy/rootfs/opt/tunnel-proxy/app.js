@@ -221,12 +221,10 @@ class TunnelManager {
   static handleProxyRequest(message) {
     Logger.debug(`处理代理请求: ${message.request_id} ${message.method} ${message.url}`);
     this.smartConnectToHA(message);
-  }
-  static handleWebSocketUpgrade(message) {
-    Logger.debug(`处理WebSocket升级请求: ${message.upgrade_id} ${message.url}`);
+  }  static handleWebSocketUpgrade(message) {
+    Logger.info(`🔄 处理WebSocket升级请求: ${message.upgrade_id} ${message.url}`);
     this.smartConnectWebSocketToHA(message);
   }
-
   static handleWebSocketData(message) {
     const { upgrade_id, data } = message;
     const wsConnection = this.wsConnections.get(upgrade_id);
@@ -234,6 +232,7 @@ class TunnelManager {
     if (wsConnection && wsConnection.socket) {
       try {
         const binaryData = Buffer.from(data, 'base64');
+        Logger.info(`📨 WebSocket数据转发到HA: ${upgrade_id}, 长度: ${binaryData.length}`);
         wsConnection.socket.write(binaryData);
       } catch (error) {
         Logger.error(`WebSocket数据转发失败: ${error.message}`);
@@ -574,13 +573,10 @@ class TunnelManager {
         timeout: 5000
       });
 
-      let resolved = false;
-
-      ws.on('open', () => {
+      let resolved = false;      ws.on('open', () => {
         if (resolved) return;
         resolved = true;
-
-        Logger.info(`WebSocket连接建立成功: ${hostname}:${config.local_ha_port}`);        // 存储WebSocket连接
+        Logger.info(`✅ WebSocket连接建立成功: ${hostname}:${config.local_ha_port}`);// 存储WebSocket连接
         this.wsConnections.set(message.upgrade_id, {
           socket: ws,
           hostname: hostname,
@@ -606,8 +602,8 @@ class TunnelManager {
             'connection': 'upgrade',
             'sec-websocket-accept': websocketAccept
           }
-        };tunnelClient.send(response);
-        Logger.debug(`发送WebSocket升级响应: ${message.upgrade_id}, 状态: 101`);
+        };        tunnelClient.send(response);
+        Logger.info(`📤 发送WebSocket升级响应: ${message.upgrade_id}, 状态: 101`);
         this.setupWebSocketDataForwarding(ws, message.upgrade_id);
 
         resolve(true);
@@ -649,14 +645,12 @@ class TunnelManager {
         }
       }, 5000);
     });
-  }
-  static setupWebSocketDataForwarding(ws, upgradeId) {
-    Logger.debug(`设置WebSocket数据转发: ${upgradeId}`);
+  }  static setupWebSocketDataForwarding(ws, upgradeId) {
+    Logger.info(`🔗 设置WebSocket数据转发: ${upgradeId}`);
     
     // Home Assistant -> 隧道服务器
     ws.on('message', (data) => {
-      Logger.debug(`WebSocket收到消息: ${upgradeId}, 长度: ${data.length}, 类型: ${typeof data}`);
-      Logger.debug(`消息内容: ${data.toString()}`);
+      Logger.info(`📥 WebSocket收到HA消息: ${upgradeId}, 长度: ${data.length}, 内容: ${data.toString()}`);
       
       const response = {
         type: 'websocket_data',
@@ -664,15 +658,13 @@ class TunnelManager {
         data: data.toString('base64') // 使用base64编码传输
       };
       tunnelClient.send(response);
-      Logger.debug(`已转发WebSocket消息: ${upgradeId}`);
-    });
-
-    ws.on('close', (code, reason) => {
-      Logger.debug(`WebSocket连接关闭: ${upgradeId}, code: ${code}, reason: ${reason}`);
+      Logger.info(`📤 已转发WebSocket消息: ${upgradeId}`);
+    });    ws.on('close', (code, reason) => {
+      Logger.warn(`🔴 WebSocket连接关闭: ${upgradeId}, code: ${code}, reason: ${reason}`);
     });
 
     ws.on('error', (error) => {
-      Logger.error(`WebSocket连接错误: ${upgradeId}, error: ${error.message}`);
+      Logger.error(`❌ WebSocket连接错误: ${upgradeId}, error: ${error.message}`);
     });
   }
 
