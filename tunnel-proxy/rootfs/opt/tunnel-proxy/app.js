@@ -642,24 +642,53 @@ class TunnelManager {
         tunnelClient.send(response)
         Logger.info(
           `📤 发送WebSocket升级响应: ${message.upgrade_id}, 状态: 101`
-        )
-        // 立即设置消息处理器，避免时序问题
+        )        // 立即设置消息处理器，避免时序问题
         ws.on('message', (data) => {
           Logger.info(
             `📥 WebSocket收到HA消息: ${message.upgrade_id}, 长度: ${data.length
             }, 内容: ${data.toString()}`
           )
 
+          // 检查是否是认证相关消息
+          let isAuthMessage = false
+          try {
+            const parsed = JSON.parse(data.toString())
+            if (parsed.type === 'auth_required') {
+              Logger.info(`🔐 HA要求WebSocket认证: ${message.upgrade_id}`)
+              isAuthMessage = true
+            } else if (parsed.type === 'auth_invalid') {
+              Logger.warn(`❌ WebSocket认证失败: ${message.upgrade_id} - 请检查浏览器中的访问令牌是否有效`)
+              Logger.info(`💡 提示：需要在HA中生成长期访问令牌，并在浏览器中正确配置`)
+              isAuthMessage = true
+            } else if (parsed.type === 'auth_ok') {
+              Logger.info(`✅ WebSocket认证成功: ${message.upgrade_id}`)
+              isAuthMessage = true
+            }
+          } catch (e) {
+            // 正常的非JSON消息
+          }
+
           const response = {
             type: 'websocket_data',
             upgrade_id: message.upgrade_id,
             data: data.toString('base64'), // 使用base64编码传输
-          }
-
-          // 确保消息转发完成
+          }          // 确保消息转发完成，对于认证消息使用同步发送
           try {
-            tunnelClient.send(response)
-            Logger.info(`📤 已转发WebSocket消息: ${message.upgrade_id}`)
+            if (isAuthMessage) {
+              // 认证消息立即发送，并确保网络缓冲区刷新
+              tunnelClient.send(response)
+              // 对于认证消息，使用setImmediate确保立即处理
+              setImmediate(() => {
+                // 强制刷新网络缓冲区
+                if (tunnelClient.socket && typeof tunnelClient.socket._flush === 'function') {
+                  tunnelClient.socket._flush()
+                }
+              })
+              Logger.info(`📤 已立即转发WebSocket认证消息: ${message.upgrade_id}`)
+            } else {
+              tunnelClient.send(response)
+              Logger.info(`📤 已转发WebSocket消息: ${message.upgrade_id}`)
+            }
           } catch (error) {
             Logger.error(`❌ WebSocket消息转发失败: ${error.message}`)
           }
@@ -687,12 +716,19 @@ class TunnelManager {
 
         reject(error)
       })
-      ws.on('close', () => {
+      ws.on('close', (code, reason) => {
         Logger.info(
-          `🔴 WebSocket连接关闭: ${hostname}, upgrade_id: ${message.upgrade_id}`
+          `🔴 WebSocket连接关闭: ${hostname}, upgrade_id: ${message.upgrade_id}, 代码: ${code}, 原因: ${reason || '无'}`
         )
 
-        // 增加延迟到500ms，确保所有消息处理完成
+        // 分析关闭原因
+        if (code === 1000) {
+          Logger.info(`ℹ️  正常关闭 - 可能是认证失败或客户端主动断开`)
+        } else if (code === 1006) {
+          Logger.warn(`⚠️  异常关闭 - 可能的网络问题或服务器错误`)
+        }
+
+        // 增加延迟到1000ms，确保所有消息处理完成，特别是auth_invalid消息
         setTimeout(() => {
           this.wsConnections.delete(message.upgrade_id)
 
@@ -708,7 +744,7 @@ class TunnelManager {
           } catch (error) {
             Logger.error(`❌ 发送关闭通知失败: ${error.message}`)
           }
-        }, 500) // 增加到500ms延迟，确保最后的消息能够转发完成
+        }, 1000) // 增加到1000ms延迟，确保最后的消息（如auth_invalid）能够转发完成
       })
 
       setTimeout(() => {

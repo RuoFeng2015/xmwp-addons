@@ -148,8 +148,7 @@ class TunnelClient extends EventEmitter {
     this.sendMessage(authMessage);
   }  /**
    * 发送消息到服务器
-   */
-  sendMessage(message) {
+   */  sendMessage(message) {
     if (!this.socket || !this.isConnected) {
       this.emit('error', new Error('未连接到服务器'));
       return false;
@@ -158,10 +157,27 @@ class TunnelClient extends EventEmitter {
     try {
       const data = JSON.stringify(message) + '\n';
 
+      // 检查是否是认证相关的WebSocket消息
+      let isAuthMessage = false;
+      if (message.type === 'websocket_data' && message.data) {
+        try {
+          const decoded = Buffer.from(message.data, 'base64').toString();
+          const parsed = JSON.parse(decoded);
+          if (parsed.type === 'auth_invalid' || parsed.type === 'auth_ok' || parsed.type === 'auth_required') {
+            isAuthMessage = true;
+          }
+        } catch (e) {
+          // 忽略解析错误
+        }
+      }
+
       // 添加详细的发送日志 - 只保留WebSocket相关的
       if (message.type === 'websocket_data') {
         const decoded = Buffer.from(message.data, 'base64').toString();
         console.log(`🔄 [TunnelClient] 发送WebSocket数据: ${message.upgrade_id}, 长度: ${data.length}, 内容: ${decoded}`);
+        if (isAuthMessage) {
+          console.log(`🔐 [TunnelClient] 这是认证相关消息，将立即刷新缓冲区`);
+        }
       } else if (message.type === 'websocket_upgrade_response' || message.type === 'websocket_close') {
         console.log(`🔄 [TunnelClient] 发送WebSocket消息: ${message.type}, 长度: ${data.length}`);
       }
@@ -170,7 +186,22 @@ class TunnelClient extends EventEmitter {
       //   console.log(`🔄 [TunnelClient] 发送消息: ${message.type}, 长度: ${data.length}`);
       // }
 
+      // 写入数据
       this.socket.write(data);
+
+      // 对于认证消息，立即刷新socket缓冲区
+      if (isAuthMessage || message.type === 'websocket_upgrade_response') {
+        if (this.socket && typeof this.socket._flush === 'function') {
+          this.socket._flush();
+        }
+        // 使用Node.js的Cork/Uncork机制强制刷新
+        if (this.socket && typeof this.socket.uncork === 'function') {
+          this.socket.cork();
+          process.nextTick(() => {
+            this.socket.uncork();
+          });
+        }
+      }
 
       // 只在WebSocket相关消息时显示写入确认
       if (message.type.startsWith('websocket_')) {
