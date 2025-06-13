@@ -3,6 +3,7 @@ const path = require('path')
 const Logger = require('./logger')
 
 // 配置文件路径
+console.log("%c Line:8 🎂 process.env.NODE_ENV", "color:#f5ce50", process.env.NODE_ENV);
 const CONFIG_PATH =
   process.env.NODE_ENV === 'development'
     ? path.join(__dirname, '..', 'config-dev.json')
