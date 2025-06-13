@@ -544,33 +544,36 @@ class TunnelManager {
         Logger.info(`ℹ️  ${closeAnalysis}`)
 
         // 特殊处理：当检测到可能的auth_invalid消息丢失时，主动发送认证失败消息
-        if (needsAuthInvalidCompensation) {
-          Logger.warn(`🚨 检测到可能的auth_invalid消息丢失，主动发送认证失败消息`)
+        // if (needsAuthInvalidCompensation) {
+        //   Logger.warn(`🚨 检测到可能的auth_invalid消息丢失，主动发送认证失败消息`)
 
-          try {
-            // 构造auth_invalid消息
-            const authInvalidMessage = { "type": "auth_ok", "ha_version": "2025.3.2" }
+        //   try {
+        //     // 构造auth_invalid消息
+        //     const authInvalidMessage = {
+        //       type: 'auth_invalid',
+        //       message: '访问令牌无效或已过期'
+        //     }
 
-            const compensationResponse = {
-              type: 'websocket_data',
-              upgrade_id: message.upgrade_id,
-              data: Buffer.from(JSON.stringify(authInvalidMessage)).toString('base64')
-            }
+        //     const compensationResponse = {
+        //       type: 'websocket_data',
+        //       upgrade_id: message.upgrade_id,
+        //       data: Buffer.from(JSON.stringify(authInvalidMessage)).toString('base64')
+        //     }
 
-            // 立即发送补偿消息
-            this.tunnelClient.send(compensationResponse)
-            Logger.info(`📤 已补发auth_invalid消息: ${message.upgrade_id}`)
+        //     // 立即发送补偿消息
+        //     this.tunnelClient.send(compensationResponse)
+        //     Logger.info(`📤 已补发auth_invalid消息: ${message.upgrade_id}`)
 
-            // 等待一小段时间确保消息传输
-            setTimeout(() => {
-              this.sendCloseNotification(message.upgrade_id)
-            }, 500)
-            return
+        //     // 等待一小段时间确保消息传输
+        //     setTimeout(() => {
+        //       this.sendCloseNotification(message.upgrade_id)
+        //     }, 500)
+        //     return
 
-          } catch (error) {
-            Logger.error(`❌ 发送补偿auth_invalid消息失败: ${error.message}`)
-          }
-        }
+        //   } catch (error) {
+        //     Logger.error(`❌ 发送补偿auth_invalid消息失败: ${error.message}`)
+        //   }
+        // }
 
         // 正常的关闭处理
         setTimeout(() => {
