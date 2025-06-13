@@ -9,7 +9,7 @@ class ErrorHandler {
     process.on('uncaughtException', (error) => {
       Logger.error(`未捕获的异常: ${error.message}`)
       Logger.error(error.stack)
-      
+
       // 在生产环境中，可以选择退出进程
       if (process.env.NODE_ENV === 'production') {
         process.exit(1)
@@ -20,7 +20,7 @@ class ErrorHandler {
     process.on('unhandledRejection', (reason, promise) => {
       Logger.error(`未处理的Promise拒绝: ${reason}`)
       Logger.error('Promise:', promise)
-      
+
       // 在生产环境中，可以选择退出进程
       if (process.env.NODE_ENV === 'production') {
         process.exit(1)
@@ -55,7 +55,7 @@ class ErrorHandler {
   static handleStartupError(error) {
     Logger.error(`服务启动失败: ${error.message}`)
     Logger.error(error.stack)
-    
+
     if (process.env.NODE_ENV !== 'development') {
       process.exit(1)
     } else {

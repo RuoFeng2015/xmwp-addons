@@ -30,7 +30,7 @@ async function testModulesStep() {
 
     // 2. 测试复杂模块
     console.log('\n2️⃣ 测试复杂模块...')
-    
+
     // 先测试TunnelClient是否能正常加载
     console.log('测试 TunnelClient...')
     const TunnelClient = require('./tunnel-client')
@@ -39,7 +39,7 @@ async function testModulesStep() {
     console.log('测试 TunnelManager...')
     const TunnelManager = require('./lib/tunnel-manager')
     console.log('✅ TunnelManager 加载成功')
-    
+
     const tunnelManager = new TunnelManager()
     console.log('✅ TunnelManager 实例化成功')
 

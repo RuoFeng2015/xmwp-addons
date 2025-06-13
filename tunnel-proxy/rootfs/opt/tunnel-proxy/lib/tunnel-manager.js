@@ -405,9 +405,7 @@ class TunnelManager {
         this.tunnelClient.send(response)
         Logger.info(
           `📤 发送WebSocket升级响应: ${message.upgrade_id}, 状态: 101`
-        )
-
-        ws.on('message', (data) => {
+        )        ws.on('message', (data) => {
           Logger.info(
             `📥 WebSocket收到HA消息: ${message.upgrade_id}, 长度: ${data.length
             }, 内容: ${data.toString()}`
@@ -446,18 +444,42 @@ class TunnelManager {
 
           try {
             if (isAuthMessage) {
-              this.tunnelClient.send(response)
+              // 认证消息使用同步发送，并添加多重保障
+              Logger.info(`🔐 准备立即发送认证消息: ${messageType} - ${message.upgrade_id}`)
+              
+              // 1. 立即发送消息
+              const sendSuccess = this.tunnelClient.send(response)
+              if (!sendSuccess) {
+                Logger.error(`❌ 认证消息发送失败: ${message.upgrade_id}`)
+                return
+              }
 
+              // 2. 强制刷新网络缓冲区
               setImmediate(() => {
                 if (this.tunnelClient.socket && typeof this.tunnelClient.socket._flush === 'function') {
                   this.tunnelClient.socket._flush()
                 }
+                
+                // 3. 使用cork/uncork机制确保立即传输
+                if (this.tunnelClient.socket && typeof this.tunnelClient.socket.uncork === 'function') {
+                  this.tunnelClient.socket.cork()
+                  process.nextTick(() => {
+                    this.tunnelClient.socket.uncork()
+                  })
+                }
               })
 
-              if (messageType === 'auth_ok') {
+              // 4. 对于auth_ok和auth_invalid消息，添加额外的确认机制
+              if (messageType === 'auth_ok' || messageType === 'auth_invalid') {
                 setTimeout(() => {
-                  Logger.info(`🔄 再次确认auth_ok消息已发送: ${message.upgrade_id}`)
-                }, 10)
+                  Logger.info(`🔄 再次确认${messageType}消息已发送: ${message.upgrade_id}`)
+                  // 检查连接状态
+                  if (this.tunnelClient && this.tunnelClient.isConnected) {
+                    Logger.info(`✅ 隧道连接状态正常，${messageType}消息应已传输`)
+                  } else {
+                    Logger.warn(`⚠️  隧道连接异常，${messageType}消息可能未完全传输`)
+                  }
+                }, 50)
               }
 
               Logger.info(`📤 已立即转发WebSocket认证消息: ${message.upgrade_id}`)
@@ -467,6 +489,7 @@ class TunnelManager {
             }
           } catch (error) {
             Logger.error(`❌ WebSocket消息转发失败: ${error.message}`)
+            Logger.error(error.stack)
           }
         })
 
@@ -486,15 +509,14 @@ class TunnelManager {
         }
         this.tunnelClient.send(errorResponse)
         reject(error)
-      })
-
-      ws.on('close', (code, reason) => {
+      })      ws.on('close', (code, reason) => {
         Logger.info(
           `🔴 WebSocket连接关闭: ${hostname}, upgrade_id: ${message.upgrade_id}, 代码: ${code}, 原因: ${reason || '无'}`
         )
 
         let closeAnalysis = ''
         let delayMs = 1000
+        let needsAuthInvalidCompensation = false
 
         if (authenticationState.required) {
           if (authenticationState.response === 'invalid') {
@@ -505,6 +527,7 @@ class TunnelManager {
             delayMs = 2000
           } else if (authenticationState.response === null && code === 1000) {
             closeAnalysis = 'HA在认证过程中关闭连接（可能是auth_invalid消息丢失或网络问题）'
+            needsAuthInvalidCompensation = true
             delayMs = 1500
           } else {
             closeAnalysis = '认证过程中的异常关闭'
@@ -521,22 +544,60 @@ class TunnelManager {
         }
         Logger.info(`ℹ️  ${closeAnalysis}`)
 
-        setTimeout(() => {
-          this.wsConnections.delete(message.upgrade_id)
-
-          const response = {
-            type: 'websocket_close',
-            upgrade_id: message.upgrade_id,
-          }
-
+        // 特殊处理：当检测到可能的auth_invalid消息丢失时，主动发送认证失败消息
+        if (needsAuthInvalidCompensation) {
+          Logger.warn(`🚨 检测到可能的auth_invalid消息丢失，主动发送认证失败消息`)
+          
           try {
-            this.tunnelClient.send(response)
-            Logger.info(`📤 通知服务器WebSocket连接关闭: ${message.upgrade_id}`)
+            // 构造auth_invalid消息
+            const authInvalidMessage = {
+              type: 'auth_invalid',
+              message: '访问令牌无效或已过期'
+            }
+            
+            const compensationResponse = {
+              type: 'websocket_data',
+              upgrade_id: message.upgrade_id,
+              data: Buffer.from(JSON.stringify(authInvalidMessage)).toString('base64')
+            }
+            
+            // 立即发送补偿消息
+            this.tunnelClient.send(compensationResponse)
+            Logger.info(`📤 已补发auth_invalid消息: ${message.upgrade_id}`)
+            
+            // 等待一小段时间确保消息传输
+            setTimeout(() => {
+              this.sendCloseNotification(message.upgrade_id)
+            }, 500)
+            return
+            
           } catch (error) {
-            Logger.error(`❌ 发送关闭通知失败: ${error.message}`)
+            Logger.error(`❌ 发送补偿auth_invalid消息失败: ${error.message}`)
           }
-        }, delayMs * 5)
+        }
+
+        // 正常的关闭处理
+        setTimeout(() => {
+          this.sendCloseNotification(message.upgrade_id)
+        }, delayMs)
       })
+    })
+  }
+
+  sendCloseNotification(upgrade_id) {
+    this.wsConnections.delete(upgrade_id)
+
+    const response = {
+      type: 'websocket_close',
+      upgrade_id: upgrade_id,
+    }
+
+    try {
+      this.tunnelClient.send(response)
+      Logger.info(`📤 通知服务器WebSocket连接关闭: ${upgrade_id}`)
+    } catch (error) {
+      Logger.error(`❌ 发送关闭通知失败: ${error.message}`)
+    }
 
       setTimeout(() => {
         if (!resolved) {

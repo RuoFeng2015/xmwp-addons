@@ -17,7 +17,7 @@ class HealthChecker {
   getHealthStatus() {
     const tunnelStatus = this.tunnelManager ? this.tunnelManager.getStatus() : null
     const config = getConfig()
-    
+
     return {
       status: 'ok',
       timestamp: Date.now(),
@@ -71,7 +71,7 @@ class HealthChecker {
   async performHealthCheck() {
     try {
       const status = this.getHealthStatus()
-      
+
       // 检查内存使用情况
       const memoryUsage = status.memory.heapUsed / 1024 / 1024 // MB
       if (memoryUsage > 100) { // 超过100MB发出警告
@@ -108,7 +108,7 @@ class HealthChecker {
     try {
       Logger.info('正在测试本地Home Assistant连接...')
       const connectionOk = await this.tunnelManager.testLocalConnection()
-      
+
       if (connectionOk) {
         const config = getConfig()
         Logger.info(

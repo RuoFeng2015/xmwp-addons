@@ -14,7 +14,8 @@ const HealthChecker = require('./health-checker')
 /**
  * 代理服务器类
  */
-class ProxyServer {  constructor(tunnelManager) {
+class ProxyServer {
+  constructor(tunnelManager) {
     this.tunnelManager = tunnelManager
     this.proxy = null
     this.activeConnections = new Map()
@@ -61,7 +62,7 @@ class ProxyServer {  constructor(tunnelManager) {
         ctx.status = 401
         ctx.body = { error: '用户名或密码错误' }
         return
-      }      const token = AuthManager.generateToken(username)
+      } const token = AuthManager.generateToken(username)
       ctx.body = {
         token,
         user: { username },
@@ -146,7 +147,7 @@ class ProxyServer {  constructor(tunnelManager) {
   createServer() {
     const app = this.createKoaApp()
     const httpProxy = this.createHttpProxy()
-    
+
     const server = http.createServer(app.callback())
 
     server.on('request', (req, res) => {
@@ -162,7 +163,7 @@ class ProxyServer {  constructor(tunnelManager) {
   startConnectionCleanup() {
     // 启动健康检查
     this.healthChecker.startHealthCheck()
-    
+
     // 定期清理过期连接
     setInterval(() => {
       const now = Date.now()
@@ -179,7 +180,7 @@ class ProxyServer {  constructor(tunnelManager) {
       this.proxy.close()
       this.proxy = null
     }
-    
+
     if (this.healthChecker) {
       this.healthChecker.stopHealthCheck()
     }
