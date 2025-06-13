@@ -35,12 +35,12 @@ async function testDirectHAConnection() {
         if (message.type === 'auth_required' && !authSent) {
           authSent = true;
           console.log('🔐 发送无效认证消息...');
-          
+
           const authMessage = {
             "type": "auth",
             "access_token": "invalid_token_for_testing_final_fix"
           };
-          
+
           ws.send(JSON.stringify(authMessage));
         }
       } catch (e) {
@@ -51,15 +51,15 @@ async function testDirectHAConnection() {
     ws.on('close', (code, reason) => {
       const elapsed = Date.now() - startTime;
       console.log(`🔴 直连关闭 (${elapsed}ms): code=${code}`);
-      
+
       const hasAuthRequired = messages.some(m => m.type === 'auth_required');
       const hasAuthInvalid = messages.some(m => m.type === 'auth_invalid');
-      
+
       console.log('📊 直连结果:');
       console.log(`   消息总数: ${messages.length}`);
       console.log(`   auth_required: ${hasAuthRequired ? '✅' : '❌'}`);
       console.log(`   auth_invalid: ${hasAuthInvalid ? '✅' : '❌'}`);
-      
+
       resolve({ messages, hasAuthRequired, hasAuthInvalid });
     });
 
@@ -106,12 +106,12 @@ async function testTunnelProxyConnection() {
         if (message.type === 'auth_required' && !authSent) {
           authSent = true;
           console.log('🔐 发送无效认证消息...');
-          
+
           const authMessage = {
             "type": "auth",
             "access_token": "invalid_token_for_testing_final_fix"
           };
-          
+
           ws.send(JSON.stringify(authMessage));
         }
       } catch (e) {
@@ -122,15 +122,15 @@ async function testTunnelProxyConnection() {
     ws.on('close', (code, reason) => {
       const elapsed = Date.now() - startTime;
       console.log(`🔴 代理关闭 (${elapsed}ms): code=${code}`);
-      
+
       const hasAuthRequired = messages.some(m => m.type === 'auth_required');
       const hasAuthInvalid = messages.some(m => m.type === 'auth_invalid');
-      
+
       console.log('📊 代理结果:');
       console.log(`   消息总数: ${messages.length}`);
       console.log(`   auth_required: ${hasAuthRequired ? '✅' : '❌'}`);
       console.log(`   auth_invalid: ${hasAuthInvalid ? '✅' : '❌'}`);
-      
+
       resolve({ messages, hasAuthRequired, hasAuthInvalid });
     });
 
@@ -162,10 +162,10 @@ async function runFinalTest() {
 
     // 测试直接连接
     const directResult = await testDirectHAConnection();
-    
+
     // 等待一下
     await new Promise(resolve => setTimeout(resolve, 2000));
-    
+
     // 测试代理连接
     const proxyResult = await testTunnelProxyConnection();
 
@@ -184,8 +184,8 @@ async function runFinalTest() {
     console.log(`   代理auth_invalid: ${proxyResult.hasAuthInvalid ? '✅' : '❌'}`);
 
     // 修复效果评估
-    const isFixed = proxyResult.hasAuthRequired && proxyResult.hasAuthInvalid && 
-                   proxyResult.messages.length >= directResult.messages.length;
+    const isFixed = proxyResult.hasAuthRequired && proxyResult.hasAuthInvalid &&
+      proxyResult.messages.length >= directResult.messages.length;
 
     console.log('\n🎉 修复效果评估:');
     if (isFixed) {

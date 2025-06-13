@@ -11,17 +11,17 @@ console.log('='.repeat(60));
 async function analyzeActualToken() {
   // 使用用户日志中的实际token
   const actualToken = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiIyY2E3ZjQ5MzliMDg0NTllODFiOGI2NTcyYzVkM2QyNSIsImlhdCI6MTc0OTcyMjE1NCwiZXhwIjoxNzQ5NzIzOTU0fQ.Z7nUakugVhkPG1OLYc98REx7CQCTT-HCoupXIFW0W6U";
-  
+
   console.log('📋 测试用户实际使用的token...');
   console.log('🔑 Token (前50字符):', actualToken.substring(0, 50) + '...');
-  
+
   // 解析JWT token查看过期时间
   try {
     const payload = JSON.parse(Buffer.from(actualToken.split('.')[1], 'base64').toString());
     const now = Math.floor(Date.now() / 1000);
     const exp = payload.exp;
     const iat = payload.iat;
-    
+
     console.log('📊 Token信息:');
     console.log(`   发行时间: ${new Date(iat * 1000).toLocaleString()}`);
     console.log(`   过期时间: ${new Date(exp * 1000).toLocaleString()}`);
@@ -35,26 +35,26 @@ async function analyzeActualToken() {
   // 测试直接连接
   console.log('\n🔗 1. 测试直接连接到HA...');
   const directResult = await testConnection('ws://192.168.6.170:8123/api/websocket', actualToken, '直接连接');
-  
+
   // 等待2秒
   await new Promise(resolve => setTimeout(resolve, 2000));
-  
+
   // 测试代理连接
   console.log('\n🔗 2. 测试通过隧道代理连接...');
   const proxyResult = await testConnection('ws://110.41.20.134:3081/api/websocket', actualToken, '代理连接');
-  
+
   // 分析结果
   console.log('\n📊 结果分析:');
   console.log(`直接连接: ${directResult.messageCount}条消息 - ${directResult.messages.map(m => m.type).join(' → ')}`);
   console.log(`代理连接: ${proxyResult.messageCount}条消息 - ${proxyResult.messages.map(m => m.type).join(' → ')}`);
-  
+
   if (directResult.messageCount === 1 && directResult.messages[0].type === 'auth_required') {
     console.log('\n🎯 发现问题根源:');
     console.log('   - HA只发送了auth_required，然后直接关闭连接');
     console.log('   - 这可能是因为token已过期，HA的安全策略直接关闭连接');
     console.log('   - 没有发送auth_invalid消息');
   }
-  
+
   if (directResult.messageCount === proxyResult.messageCount) {
     console.log('\n✅ 隧道代理工作正常：消息转发数量一致');
   } else {
@@ -65,7 +65,7 @@ async function analyzeActualToken() {
 function testConnection(url, token, connectionType) {
   return new Promise((resolve) => {
     const ws = new WebSocket(url);
-    
+
     let messageCount = 0;
     const messages = [];
     const startTime = Date.now();
@@ -77,12 +77,12 @@ function testConnection(url, token, connectionType) {
     ws.on('message', (data) => {
       messageCount++;
       const elapsed = Date.now() - startTime;
-      
+
       try {
         const message = JSON.parse(data.toString());
         messages.push(message);
         console.log(`   📥 [${elapsed}ms] 收到消息 #${messageCount}: ${message.type}`);
-        
+
         if (message.type === 'auth_required') {
           // 发送实际token
           const authMessage = {
@@ -100,7 +100,7 @@ function testConnection(url, token, connectionType) {
     ws.on('close', (code, reason) => {
       const elapsed = Date.now() - startTime;
       console.log(`   🔴 [${elapsed}ms] ${connectionType}关闭: code=${code}, reason=${reason || '无'}`);
-      
+
       resolve({
         success: true,
         messageCount,

@@ -592,9 +592,7 @@ class TunnelManager {
       const protocol = config.local_ha_port === 443 ? 'wss' : 'ws'
       const wsUrl = `${protocol}://${hostname}:${config.local_ha_port}${message.url}`
 
-      // Logger.debug(`尝试WebSocket连接: ${wsUrl}`);
-
-      // 准备头信息
+      // Logger.debug(`尝试WebSocket连接: ${wsUrl}`);      // 准备头信息
       const headers = { ...message.headers }
       headers['host'] = `${hostname}:${config.local_ha_port}`
       delete headers['connection']
@@ -604,6 +602,13 @@ class TunnelManager {
         headers: headers,
         timeout: 5000,
       })
+
+      // 添加认证状态跟踪 - 移到外层作用域
+      let authenticationState = {
+        required: false,
+        response: null,
+        successful: false
+      }
 
       let resolved = false
       ws.on('open', () => {
@@ -632,8 +637,7 @@ class TunnelManager {
         const response = {
           type: 'websocket_upgrade_response',
           upgrade_id: message.upgrade_id,
-          status_code: 101,
-          headers: {
+          status_code: 101, headers: {
             upgrade: 'websocket',
             connection: 'upgrade',
             'sec-websocket-accept': websocketAccept,
@@ -642,14 +646,9 @@ class TunnelManager {
         tunnelClient.send(response)
         Logger.info(
           `📤 发送WebSocket升级响应: ${message.upgrade_id}, 状态: 101`
-        )        // 立即设置消息处理器，避免时序问题
-        // 添加认证状态跟踪
-        let authenticationState = {
-          required: false,
-          response: null,
-          successful: false
-        }
-        
+        )
+
+        // 立即设置消息处理器，避免时序问题
         ws.on('message', (data) => {
           Logger.info(
             `📥 WebSocket收到HA消息: ${message.upgrade_id}, 长度: ${data.length
@@ -693,7 +692,7 @@ class TunnelManager {
             if (isAuthMessage) {
               // 认证消息立即发送，并确保网络缓冲区刷新
               tunnelClient.send(response)
-              
+
               // 对于认证消息，使用多重措施确保立即处理
               setImmediate(() => {
                 // 强制刷新网络缓冲区
@@ -701,7 +700,7 @@ class TunnelManager {
                   tunnelClient.socket._flush()
                 }
               })
-              
+
               // 对于auth_ok消息，额外确保传输
               if (messageType === 'auth_ok') {
                 // 延迟一小段时间再次确认发送
@@ -709,7 +708,7 @@ class TunnelManager {
                   Logger.info(`🔄 再次确认auth_ok消息已发送: ${message.upgrade_id}`)
                 }, 10)
               }
-              
+
               Logger.info(`📤 已立即转发WebSocket认证消息: ${message.upgrade_id}`)
             } else {
               tunnelClient.send(response)
@@ -748,7 +747,7 @@ class TunnelManager {
         // 根据认证状态和关闭原因分析连接关闭
         let closeAnalysis = ''
         let delayMs = 1000 // 默认延迟
-        
+
         if (authenticationState.required) {
           if (authenticationState.response === 'invalid') {
             closeAnalysis = 'HA在认证失败后正常关闭连接（安全机制）'
@@ -772,29 +771,29 @@ class TunnelManager {
             closeAnalysis = `关闭代码: ${code}`
           }
         }
-          Logger.info(`ℹ️  ${closeAnalysis}`)
+        Logger.info(`ℹ️  ${closeAnalysis}`)
 
         // 特殊处理：当检测到可能的auth_invalid消息丢失时，主动发送认证失败消息
         if (authenticationState.required && authenticationState.response === null && code === 1000) {
           Logger.warn(`🚨 检测到可能的auth_invalid消息丢失，主动发送认证失败消息`)
-          
+
           try {
             // 构造auth_invalid消息
             const authInvalidMessage = {
               type: 'auth_invalid',
               message: '访问令牌无效或已过期'
             }
-            
+
             const response = {
               type: 'websocket_data',
               upgrade_id: message.upgrade_id,
               data: Buffer.from(JSON.stringify(authInvalidMessage)).toString('base64')
             }
-            
+
             // 立即发送auth_invalid消息
             tunnelClient.send(response)
             Logger.info(`📤 已补发auth_invalid消息: ${message.upgrade_id}`)
-            
+
             // 使用setImmediate确保消息优先处理
             setImmediate(() => {
               if (tunnelClient.socket && typeof tunnelClient.socket._flush === 'function') {
@@ -821,7 +820,7 @@ class TunnelManager {
           } catch (error) {
             Logger.error(`❌ 发送关闭通知失败: ${error.message}`)
           }
-        }, delayMs*5) // 使用基于认证状态的动态延迟
+        }, delayMs * 5) // 使用基于认证状态的动态延迟
       })
 
       setTimeout(() => {
