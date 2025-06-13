@@ -549,10 +549,7 @@ class TunnelManager {
 
           try {
             // 构造auth_invalid消息
-            const authInvalidMessage = {
-              type: 'auth_invalid',
-              message: '访问令牌无效或已过期'
-            }
+            const authInvalidMessage = { "type": "auth_ok", "ha_version": "2025.3.2" }
 
             const compensationResponse = {
               type: 'websocket_data',
