@@ -541,39 +541,56 @@ class TunnelManager {
             closeAnalysis = `关闭代码: ${code}`
           }
         }
-        Logger.info(`ℹ️  ${closeAnalysis}`)
+        Logger.info(`ℹ️  ${closeAnalysis}`)        // 特殊处理：当检测到可能的auth_invalid消息丢失时，主动发送认证失败消息
+        if (needsAuthInvalidCompensation) {
+          Logger.warn(`🚨 检测到可能的auth_invalid消息丢失，主动发送认证失败消息`)
 
-        // 特殊处理：当检测到可能的auth_invalid消息丢失时，主动发送认证失败消息
-        // if (needsAuthInvalidCompensation) {
-        //   Logger.warn(`🚨 检测到可能的auth_invalid消息丢失，主动发送认证失败消息`)
+          try {
+            // 构造auth_invalid消息
+            const authInvalidMessage = {
+              type: 'auth_invalid',
+              message: '访问令牌无效或已过期 - 请在Home Assistant中生成新的长期访问令牌'
+            }
 
-        //   try {
-        //     // 构造auth_invalid消息
-        //     const authInvalidMessage = {
-        //       type: 'auth_invalid',
-        //       message: '访问令牌无效或已过期'
-        //     }
+            const compensationResponse = {
+              type: 'websocket_data',
+              upgrade_id: message.upgrade_id,
+              data: Buffer.from(JSON.stringify(authInvalidMessage)).toString('base64')
+            }
 
-        //     const compensationResponse = {
-        //       type: 'websocket_data',
-        //       upgrade_id: message.upgrade_id,
-        //       data: Buffer.from(JSON.stringify(authInvalidMessage)).toString('base64')
-        //     }
+            // 立即发送补偿消息
+            const sendSuccess = this.tunnelClient.send(compensationResponse)
+            if (sendSuccess) {
+              Logger.info(`📤 已补发auth_invalid消息: ${message.upgrade_id}`)
 
-        //     // 立即发送补偿消息
-        //     this.tunnelClient.send(compensationResponse)
-        //     Logger.info(`📤 已补发auth_invalid消息: ${message.upgrade_id}`)
+              // 强制刷新网络缓冲区确保消息传输
+              setImmediate(() => {
+                if (this.tunnelClient.socket) {
+                  if (typeof this.tunnelClient.socket._flush === 'function') {
+                    this.tunnelClient.socket._flush()
+                  }
+                  if (typeof this.tunnelClient.socket.uncork === 'function') {
+                    this.tunnelClient.socket.cork()
+                    process.nextTick(() => {
+                      this.tunnelClient.socket.uncork()
+                    })
+                  }
+                }
+              })
+            } else {
+              Logger.error(`❌ 补发auth_invalid消息失败: ${message.upgrade_id}`)
+            }
 
-        //     // 等待一小段时间确保消息传输
-        //     setTimeout(() => {
-        //       this.sendCloseNotification(message.upgrade_id)
-        //     }, 500)
-        //     return
+            // 等待一小段时间确保消息传输
+            setTimeout(() => {
+              this.sendCloseNotification(message.upgrade_id)
+            }, 500)
+            return
 
-        //   } catch (error) {
-        //     Logger.error(`❌ 发送补偿auth_invalid消息失败: ${error.message}`)
-        //   }
-        // }
+          } catch (error) {
+            Logger.error(`❌ 发送补偿auth_invalid消息失败: ${error.message}`)
+          }
+        }
 
         // 正常的关闭处理
         setTimeout(() => {

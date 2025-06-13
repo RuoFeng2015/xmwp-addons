@@ -32,6 +32,8 @@ class ConfigManager {
       const configData = fs.readFileSync(CONFIG_PATH, 'utf8')
       config = JSON.parse(configData)
       Logger.info('配置文件加载成功')
+      console.log('')
+      console.log("%c Line:36 🥓 config", "color:#b03734", config);
       return config
     } catch (error) {
       Logger.error(`配置文件加载失败: ${error.message}`)
