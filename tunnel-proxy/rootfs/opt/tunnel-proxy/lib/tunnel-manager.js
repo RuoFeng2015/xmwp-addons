@@ -105,16 +105,17 @@ class TunnelManager {
 
   handleWebSocketData(message) {
     const { upgrade_id, data } = message
-
+    console.log("%c Line:108 🍅 message", "color:#ed9ec7", message);
     console.log('handleWebSocketData data', data)
     const wsConnection = this.wsConnections.get(upgrade_id)
 
     if (wsConnection && wsConnection.socket) {
       try {
-        const binaryData = Buffer.from(data, 'base64')
-        Logger.info(
-          `📨 WebSocket数据转发到HA: ${upgrade_id}, 长度: ${binaryData.length}, 内容: ${binaryData.toString()}`
-        )
+        // const binaryData = Buffer.from(data, 'base64')
+        // console.log("%c Line:115 🥒 binaryData", "color:#fca650", binaryData);
+        // Logger.info(
+        //   `📨 WebSocket数据转发到HA: ${upgrade_id}, 长度: ${binaryData.length}, 内容: ${binaryData.toString()}`
+        // )
         wsConnection.socket.send(data)
         Logger.info(`✅ WebSocket数据已发送到HA: ${upgrade_id}`)
       } catch (error) {
