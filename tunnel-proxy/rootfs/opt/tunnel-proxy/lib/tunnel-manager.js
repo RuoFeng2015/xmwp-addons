@@ -116,8 +116,8 @@ class TunnelManager {
         // Logger.info(
         //   `📨 WebSocket数据转发到HA: ${upgrade_id}, 长度: ${binaryData.length}, 内容: ${binaryData.toString()}`
         // )
-        let message={"type":"auth","access_token":data}
-        wsConnection.socket.send(message)
+        let message = { "type": "auth", "access_token": data }
+        wsConnection.socket.send(JSON.stringify(message))
         Logger.info(`✅ WebSocket数据已发送到HA: ${upgrade_id}`)
       } catch (error) {
         Logger.error(`WebSocket数据转发失败: ${error.message}`)
