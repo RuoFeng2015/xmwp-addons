@@ -31,7 +31,7 @@ async function debugWebSocketCloseIssue() {
 
       const authMessage = {
         "type": "auth",
-        "access_token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJhOWYxNGU0OTM4NTA0YzUzOGI1Y2RlMmFiODc5MzdhOCIsImlhdCI6MTczNTYxNDQ0NSwiZXhwIjoyMDUwOTc0NDQ1fQ.hpZmAjM_4A1h4aCkXgXL1vMWLDTfS0B0IjvJj8eX-WY"
+        "access_token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiIyZjRlOGZkYmNkNGE0YWIwYjA2NDRjYmE3ZTJmMjE5YiIsImlhdCI6MTc0OTc4MTYyMSwiZXhwIjoxNzQ5NzgzNDIxfQ.k9xVYaHEmmf1w7Up5ou7CNkysUEDvCIbFw3phiEHl-E"
       };
 
       console.log(`   内容: ${JSON.stringify(authMessage)}`);

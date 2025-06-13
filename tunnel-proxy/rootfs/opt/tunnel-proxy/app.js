@@ -746,60 +746,54 @@ class TunnelManager {
 
         // 根据认证状态和关闭原因分析连接关闭
         let closeAnalysis = ''
+        let detailedCloseReason = `关闭代码: ${code}${reason ? ', 原因: ' + reason.toString() : ''}. ` // Ensure reason is string
         let delayMs = 1000 // 默认延迟
 
         if (authenticationState.required) {
           if (authenticationState.response === 'invalid') {
             closeAnalysis = 'HA在认证失败后正常关闭连接（安全机制）'
-            delayMs = 1500 // 认证失败延迟稍长确保auth_invalid消息传输
+            detailedCloseReason += '推断：HA 在认证失败后主动关闭。'
+            delayMs = 1500
           } else if (authenticationState.response === 'ok') {
             closeAnalysis = '认证成功后的连接关闭（可能是客户端主动断开或其他原因）'
-            delayMs = 2000 // 认证成功延迟更长确保稳定传输
+            if (code === 1000) {
+              detailedCloseReason += '推断：HA 认证成功后，连接正常关闭（可能由 HA 或客户端发起）。'
+            } else {
+              detailedCloseReason += '推断：HA 认证成功后，连接异常关闭。'
+            }
+            delayMs = 2000
           } else if (authenticationState.response === null && code === 1000) {
             closeAnalysis = 'HA在认证过程中关闭连接（可能是auth_invalid消息丢失或网络问题）'
-            delayMs = 1500 // 可能的认证失败情况
-          } else {
+            detailedCloseReason += '推断：HA 在认证过程中（未完成认证流程）正常关闭连接。可能原因：HA 未收到客户端 auth 消息、令牌无效但 auth_invalid 未发出/丢失、或 HA 内部逻辑。'
+            delayMs = 1500
+          } else { // 包括 authenticationState.response === null 但 code !== 1000 的情况
             closeAnalysis = '认证过程中的异常关闭'
+            detailedCloseReason += `推断：HA 要求认证，但连接在认证完成前异常关闭。认证状态: ${authenticationState.response === null ? '未收到响应' : authenticationState.response}.`
             delayMs = 1000
           }
         } else {
+          // HA 未要求认证
           if (code === 1000) {
-            closeAnalysis = '正常关闭（可能是客户端主动断开）'
+            closeAnalysis = '正常关闭（可能是客户端主动断开或HA在非认证流程中关闭）'
+            detailedCloseReason += '推断：连接正常关闭（未进行WebSocket认证流程）。可能由客户端或 HA 发起。'
           } else if (code === 1006) {
             closeAnalysis = '异常关闭（网络问题或服务器错误）'
+            detailedCloseReason += '推断：连接异常关闭（例如网络中断，服务器崩溃等），且未进行WebSocket认证流程。'
           } else {
             closeAnalysis = `关闭代码: ${code}`
+            detailedCloseReason += '推断：连接以非标准代码关闭，且未进行WebSocket认证流程。'
           }
+          // delayMs 保持 1000
         }
-        Logger.info(`ℹ️  ${closeAnalysis}`)
+        Logger.info(`[CLOSE_ANALYSIS] ${detailedCloseReason} (Upgrade ID: ${message.upgrade_id})`)
+        Logger.info(`ℹ️  ${closeAnalysis}`) // 保留原有日志
+        Logger.debug(`[DELAY_DEBUG] Calculated delayMs: ${delayMs}ms, Total timeout for close notification: ${delayMs * 5}ms (Upgrade ID: ${message.upgrade_id})`)
+
 
         // 特殊处理：当检测到可能的auth_invalid消息丢失时，主动发送认证失败消息
         // if (authenticationState.required && authenticationState.response === null && code === 1000) {
         //   Logger.warn(`🚨 检测到可能的auth_invalid消息丢失，主动发送认证失败消息`)
-
-        //   try {
-        //     // 构造auth_invalid消息
-        //     const authInvalidMessage = {
-        //       type: 'auth_invalid',
-        //       message: '访问令牌无效或已过期'
-        //     }
-
-        //     const response = {
-        //       type: 'websocket_data',
-        //       upgrade_id: message.upgrade_id,
-        //       data: Buffer.from(JSON.stringify(authInvalidMessage)).toString('base64')
-        //     }
-
-        //     // 立即发送auth_invalid消息
-        //     tunnelClient.send(response)
-        //     Logger.info(`📤 已补发auth_invalid消息: ${message.upgrade_id}`)
-
-        //     // 使用setImmediate确保消息优先处理
-        //     setImmediate(() => {
-        //       if (tunnelClient.socket && typeof tunnelClient.socket._flush === 'function') {
-        //         tunnelClient.socket._flush()
-        //       }
-        //     })
+// ... existing commented out code ...
         //   } catch (error) {
         //     Logger.error(`❌ 发送补偿auth_invalid消息失败: ${error.message}`)
         //   }
@@ -826,7 +820,7 @@ class TunnelManager {
       setTimeout(() => {
         if (!resolved) {
           resolved = true
-          ws.close()
+          // ws.close()
           reject(new Error('WebSocket连接超时'))
         }
       }, 5000)
