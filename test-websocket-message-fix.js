@@ -22,12 +22,12 @@ class WebSocketMessageFixTest {
   async testDirectHA() {
     return new Promise((resolve) => {
       console.log('\n=== 测试直连HA WebSocket（参考基准） ===');
-      
+
       const ws = new WebSocket('ws://192.168.6.170:8123/api/websocket');
       const messages = [];
       let authRequired = false;
       let authResponse = false;
-      
+
       const startTime = Date.now();
 
       ws.on('open', () => {
@@ -37,12 +37,12 @@ class WebSocketMessageFixTest {
       ws.on('message', (data) => {
         const message = JSON.parse(data.toString());
         messages.push(message);
-        
+
         this.log(`直连HA: 收到消息 ${message.type}`);
-        
+
         if (message.type === 'auth_required') {
           authRequired = true;
-          
+
           // 发送无效token测试
           setTimeout(() => {
             const authMessage = {
@@ -52,7 +52,7 @@ class WebSocketMessageFixTest {
             ws.send(JSON.stringify(authMessage));
             this.log('直连HA: 发送无效认证');
           }, 50);
-          
+
         } else if (message.type === 'auth_invalid' || message.type === 'auth_ok') {
           authResponse = true;
           this.log(`直连HA: 收到认证响应 ${message.type}`);
@@ -62,7 +62,7 @@ class WebSocketMessageFixTest {
       ws.on('close', (code, reason) => {
         const duration = Date.now() - startTime;
         this.log(`直连HA: 连接关闭 code=${code}, 耗时=${duration}ms`);
-        
+
         resolve({
           messageCount: messages.length,
           authRequired,
@@ -96,12 +96,12 @@ class WebSocketMessageFixTest {
   async testTunnelProxy() {
     return new Promise((resolve) => {
       console.log('\n=== 测试内网穿透WebSocket ===');
-      
+
       const ws = new WebSocket('ws://110.41.20.134:3081/api/websocket');
       const messages = [];
       let authRequired = false;
       let authResponse = false;
-      
+
       const startTime = Date.now();
 
       ws.on('open', () => {
@@ -111,12 +111,12 @@ class WebSocketMessageFixTest {
       ws.on('message', (data) => {
         const message = JSON.parse(data.toString());
         messages.push(message);
-        
+
         this.log(`隧道代理: 收到消息 ${message.type}`);
-        
+
         if (message.type === 'auth_required') {
           authRequired = true;
-          
+
           // 发送无效token测试
           setTimeout(() => {
             const authMessage = {
@@ -126,7 +126,7 @@ class WebSocketMessageFixTest {
             ws.send(JSON.stringify(authMessage));
             this.log('隧道代理: 发送无效认证');
           }, 50);
-          
+
         } else if (message.type === 'auth_invalid' || message.type === 'auth_ok') {
           authResponse = true;
           this.log(`隧道代理: 收到认证响应 ${message.type} ⭐`);
@@ -136,7 +136,7 @@ class WebSocketMessageFixTest {
       ws.on('close', (code, reason) => {
         const duration = Date.now() - startTime;
         this.log(`隧道代理: 连接关闭 code=${code}, 耗时=${duration}ms`);
-        
+
         resolve({
           messageCount: messages.length,
           authRequired,
@@ -180,16 +180,16 @@ class WebSocketMessageFixTest {
     try {
       // 测试直连HA
       const directResult = await this.testDirectHA();
-      
+
       // 等待一段时间确保连接完全关闭
       await new Promise(resolve => setTimeout(resolve, 2000));
-      
+
       // 测试隧道代理
       const proxyResult = await this.testTunnelProxy();
-      
+
       // 分析结果
       this.analyzeResults(directResult, proxyResult);
-      
+
     } catch (error) {
       console.error('测试过程中发生错误:', error);
     }
@@ -243,7 +243,7 @@ class WebSocketMessageFixTest {
     console.log('⏱️  性能对比:');
     console.log(`  直连HA    : ${directResult.duration}ms`);
     console.log(`  隧道代理  : ${proxyResult.duration}ms`);
-    
+
     if (proxyResult.duration > directResult.duration * 2) {
       console.log('  ⚠️  隧道代理延迟较高，但这是正常的');
     }

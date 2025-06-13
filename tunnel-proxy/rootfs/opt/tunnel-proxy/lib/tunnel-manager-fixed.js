@@ -111,8 +111,7 @@ class TunnelManager {
       try {
         const binaryData = Buffer.from(data, 'base64')
         Logger.info(
-          `📨 WebSocket数据转发到HA: ${upgrade_id}, 长度: ${binaryData.length
-          }, 内容: ${binaryData.toString()}`
+          `📨 WebSocket数据转发到HA: ${upgrade_id}, 长度: ${binaryData.length}, 内容: ${binaryData.toString()}`
         )
         wsConnection.socket.send(binaryData)
         Logger.info(`✅ WebSocket数据已发送到HA: ${upgrade_id}`)
@@ -281,11 +280,9 @@ class TunnelManager {
               <div class="info-box">
                 <h3>📋 当前配置</h3>
                 <ul>
-                  <li><strong>local_ha_port:</strong> <span class="code">${config.local_ha_port
-        }</span></li>
+                  <li><strong>local_ha_port:</strong> <span class="code">${config.local_ha_port}</span></li>
                   <li><strong>已知HA地址:</strong> <span class="highlight">192.168.6.170:8123</span></li>
-                  <li><strong>client_id:</strong> <span class="code">${config.client_id
-        }</span></li>
+                  <li><strong>client_id:</strong> <span class="code">${config.client_id}</span></li>
                 </ul>
               </div>
 
@@ -301,10 +298,8 @@ class TunnelManager {
               <div class="info-box">
                 <h3>🐛 调试信息</h3>
                 <ul>
-                  <li><strong>请求URL:</strong> <span class="code">${message.url
-        }</span></li>
-                  <li><strong>请求方法:</strong> <span class="code">${message.method
-        }</span></li>
+                  <li><strong>请求URL:</strong> <span class="code">${message.url}</span></li>
+                  <li><strong>请求方法:</strong> <span class="code">${message.method}</span></li>
                   <li><strong>时间戳:</strong> <span class="code">${new Date().toISOString()}</span></li>
                   <li><strong>插件版本:</strong> <span class="code">1.0.7</span></li>
                 </ul>
@@ -371,6 +366,7 @@ class TunnelManager {
       }
 
       let resolved = false
+
       ws.on('open', () => {
         if (resolved) return
         resolved = true
@@ -405,11 +401,11 @@ class TunnelManager {
         this.tunnelClient.send(response)
         Logger.info(
           `📤 发送WebSocket升级响应: ${message.upgrade_id}, 状态: 101`
-        )        
+        )
+
         ws.on('message', (data) => {
           Logger.info(
-            `📥 WebSocket收到HA消息: ${message.upgrade_id}, 长度: ${data.length
-            }, 内容: ${data.toString()}`
+            `📥 WebSocket收到HA消息: ${message.upgrade_id}, 长度: ${data.length}, 内容: ${data.toString()}`
           )
 
           let isAuthMessage = false
@@ -495,7 +491,9 @@ class TunnelManager {
         })
 
         resolve(true)
-      })      ws.on('error', (error) => {
+      })
+
+      ws.on('error', (error) => {
         Logger.error(`🔴 ws error: ${error}`)
         if (resolved) return
         resolved = true
@@ -575,7 +573,9 @@ class TunnelManager {
           } catch (error) {
             Logger.error(`❌ 发送补偿auth_invalid消息失败: ${error.message}`)
           }
-        }        // 正常的关闭处理
+        }
+
+        // 正常的关闭处理
         setTimeout(() => {
           this.sendCloseNotification(message.upgrade_id)
         }, delayMs)
