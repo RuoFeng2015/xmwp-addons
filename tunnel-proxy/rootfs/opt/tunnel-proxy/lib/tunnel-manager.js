@@ -102,7 +102,6 @@ class TunnelManager {
     )
     this.smartConnectWebSocketToHA(message)
   }
-
   handleWebSocketData(message) {
     const { upgrade_id, data } = message
     console.log("%c Line:108 🍅 message", "color:#ed9ec7", message);
@@ -111,14 +110,42 @@ class TunnelManager {
 
     if (wsConnection && wsConnection.socket) {
       try {
-        // const binaryData = Buffer.from(data, 'base64')
-        // console.log("%c Line:115 🥒 binaryData", "color:#fca650", binaryData);
-        // Logger.info(
-        //   `📨 WebSocket数据转发到HA: ${upgrade_id}, 长度: ${binaryData.length}, 内容: ${binaryData.toString()}`
-        // )
-        let message = { "type": "auth", "access_token": data }
-        wsConnection.socket.send(JSON.stringify(message))
-        Logger.info(`✅ WebSocket数据已发送到HA: ${upgrade_id}`)
+        // 将 base64 解码为字符串
+        const binaryData = Buffer.from(data, 'base64')
+        const stringData = binaryData.toString('utf8')
+
+        console.log("%c Line:115 🥒 binaryData", "color:#fca650", binaryData);
+        console.log("%c Line:116 🎯 stringData", "color:#42b883", stringData);
+
+        Logger.info(
+          `📨 WebSocket数据转发到HA: ${upgrade_id}, 长度: ${binaryData.length}, 字符串内容: ${stringData}`
+        )
+
+        // 验证是否为有效的JSON
+        try {
+          const jsonMessage = JSON.parse(stringData);
+          console.log("%c Line:124 📋 parsed JSON", "color:#67c23a", jsonMessage);
+
+          // 直接发送原始字符串数据，让WebSocket库处理
+          wsConnection.socket.send(stringData)
+
+          Logger.info(`✅ WebSocket JSON数据已发送到HA: ${upgrade_id}, 类型: ${jsonMessage.type}`)
+
+          // 如果是认证消息，设置认证超时
+          if (jsonMessage.type === 'auth') {
+            Logger.info(`🔐 检测到认证消息，设置10秒超时监控`)
+            setTimeout(() => {
+              if (wsConnection && wsConnection.socket) {
+                Logger.warn(`⏰ 认证超时，可能需要补偿机制`)
+              }
+            }, 10000)
+          }
+
+        } catch (jsonError) {
+          Logger.warn(`⚠️ 数据不是有效JSON，发送原始二进制数据: ${jsonError.message}`)
+          wsConnection.socket.send(binaryData)
+        }
+
       } catch (error) {
         Logger.error(`WebSocket数据转发失败: ${error.message}`)
       }
