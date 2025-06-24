@@ -1,10 +1,10 @@
 {
   "name": "ha-remote-access-service",
-  "host": "114.132.237.146",
+  "host": "110.41.20.134",
   "protocol": "sftp",
   "port": 22,
   "username": "root",
-  "password": "Tnj@119972",
+  "password": "tnj@119972",
   "passphrase": "null",
   "passive": false,
   "interactiveAuth": true,
