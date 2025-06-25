@@ -53,7 +53,7 @@ class ConfigManager {
       local_ha_port: 8123,
       username: 'admin',
       password: 'password',
-      client_id: 'ha-dev-client',
+      client_id: 'ha-client-001',
       proxy_port: 9001,
       log_level: 'debug',
     }
