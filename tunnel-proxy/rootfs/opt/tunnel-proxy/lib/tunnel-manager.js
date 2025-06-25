@@ -2,7 +2,7 @@ const WebSocket = require('ws')
 const http = require('http')
 const crypto = require('crypto')
 const Logger = require('./logger')
-const { getConfig } = require('./config')
+const { getConfig, ConfigManager } = require('./config')
 const TunnelClient = require('../tunnel-client')
 
 /**
@@ -16,17 +16,17 @@ class TunnelManager {
     this.connectionStatus = 'disconnected'
     this.lastHeartbeat = null
   }
-
   async connectToServer() {
     return new Promise((resolve, reject) => {
       try {
         const config = getConfig()
-        Logger.info(
-          `正在连接到中转服务器: ${config.server_host}:${config.server_port}`
-        )
+        const serverHost = ConfigManager.getServerHost()
+        
+        Logger.info(`正在连接到中转服务器: ${serverHost}:${config.server_port}`)
+        Logger.info(`连接方式: ${ConfigManager.getConnectionInfo()}`)
 
         this.tunnelClient = new TunnelClient({
-          host: config.server_host,
+          host: serverHost,
           port: config.server_port,
           username: config.username,
           password: config.password,

@@ -45,10 +45,11 @@ class ConfigManager {
       process.exit(1)
     }
   }
-
   static getDefaultConfig() {
     return {
+      connection_type: 'ip',
       server_host: 'localhost',
+      server_domain: 'tunnel.wzzhk.club',
       server_port: 3080,
       local_ha_port: 8123,
       username: 'admin',
@@ -58,10 +59,8 @@ class ConfigManager {
       log_level: 'debug',
     }
   }
-
   static validateConfig() {
     const required = [
-      'server_host',
       'server_port',
       'username',
       'password',
@@ -74,6 +73,24 @@ class ConfigManager {
       }
     }
 
+    // 验证连接方式和对应的服务器地址
+    config.connection_type = config.connection_type || 'ip'
+    
+    if (config.connection_type === 'ip') {
+      if (!config.server_host) {
+        Logger.error('使用IP连接时，必须配置 server_host')
+        process.exit(1)
+      }
+    } else if (config.connection_type === 'domain') {
+      if (!config.server_domain) {
+        Logger.error('使用域名连接时，必须配置 server_domain')
+        process.exit(1)
+      }
+    } else {
+      Logger.error('connection_type 必须是 "ip" 或 "domain"')
+      process.exit(1)
+    }
+
     config.local_ha_port = config.local_ha_port || 8123
     config.proxy_port = config.proxy_port || 9001
     config.log_level = config.log_level || 'info'
@@ -84,9 +101,28 @@ class ConfigManager {
   static getConfig() {
     return config
   }
-
   static setConfig(newConfig) {
     config = { ...config, ...newConfig }
+  }
+
+  /**
+   * 根据连接方式获取服务器地址
+   */
+  static getServerHost() {
+    if (config.connection_type === 'domain') {
+      return config.server_domain
+    } else {
+      return config.server_host
+    }
+  }
+
+  /**
+   * 获取连接信息描述
+   */
+  static getConnectionInfo() {
+    const host = this.getServerHost()
+    const type = config.connection_type === 'domain' ? '域名' : 'IP'
+    return `${type}连接: ${host}:${config.server_port}`
   }
 }
 
