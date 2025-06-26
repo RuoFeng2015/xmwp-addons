@@ -1,5 +1,5 @@
 name: "内网穿透代理"
-version: "1.3.13"
+version: "1.3.15"
 slug: tunnel-proxy
 description: "基于自建中转服务器的Home Assistant内网穿透解决方案，支持IP和域名连接"
 url: "https://github.com/RuoFeng2015/xmwp-addons"
@@ -24,16 +24,42 @@ options:
   proxy_port: 9001
   log_level: "info"
 schema:
-  connection_type: list(ip|domain)
-  server_host: str
-  server_domain: str
-  server_port: int(1,65535)
-  local_ha_port: int(1,65535)
-  username: str
-  password: str
-  client_id: str
-  proxy_port: int(1,65535)
-  log_level: list(debug|info|warn|error)
+  connection_type: 
+    description: "连接方式 (ip: 使用IP地址连接, domain: 使用域名连接)"
+    list:
+      - ip
+      - domain
+  server_host:
+    description: "中转服务器IP地址 (仅当connection_type为ip时使用)"
+    str?:
+  server_domain:
+    description: "中转服务器域名 (仅当connection_type为domain时使用)" 
+    str?:
+  server_port: 
+    description: "中转服务器端口"
+    int(1,65535):
+  local_ha_port: 
+    description: "本地Home Assistant端口"
+    int(1,65535):
+  username: 
+    description: "连接用户名"
+    str:
+  password: 
+    description: "连接密码"
+    str:
+  client_id: 
+    description: "客户端标识符"
+    str:
+  proxy_port: 
+    description: "代理服务端口"
+    int(1,65535):
+  log_level: 
+    description: "日志级别"
+    list:
+      - debug
+      - info
+      - warn
+      - error
 ports:
   9001/tcp: 9001
 ports_description:

@@ -10,14 +10,15 @@ const HANetworkDiscovery = require('./ha-network-discovery')
 /**
  * 隧道连接管理类
  */
-class TunnelManager {  constructor() {
+class TunnelManager {
+  constructor() {
     // 确保配置已加载
     try {
       ConfigManager.loadConfig();
     } catch (error) {
       Logger.debug('配置可能已经加载或配置文件不存在，继续初始化');
     }
-    
+
     this.lastSuccessfulHost = null
     this.wsConnections = new Map() // WebSocket连接存储
     this.tunnelClient = null
@@ -203,15 +204,15 @@ class TunnelManager {  constructor() {
       // 统计控制字符（优先检查，因为这是强指标）
       let controlCharCount = 0;
       const sampleSize = Math.min(buffer.length, 1024);
-      
+
       for (let i = 0; i < sampleSize; i++) {
         const byte = buffer[i];
-        
+
         // 允许的控制字符：换行、回车、制表符
         if (byte === 0x0A || byte === 0x0D || byte === 0x09) {
           continue;
         }
-        
+
         // 其他控制字符
         if (byte < 32) {
           controlCharCount++;
@@ -231,7 +232,7 @@ class TunnelManager {  constructor() {
 
       // 如果到这里还没确定，说明可能是编码有问题的数据，认为是二进制
       return true;
-      
+
     } catch (error) {
       // 如果出错，回退到简单的空字节检查
       Logger.error(`二进制检测错误: ${error.message}`);
@@ -265,7 +266,7 @@ class TunnelManager {  constructor() {
     try {
       let text;
       let buffer;
-      
+
       if (Buffer.isBuffer(input)) {
         buffer = input;
         text = buffer.toString('utf8');
@@ -313,7 +314,7 @@ class TunnelManager {  constructor() {
   async smartConnectToHA(message) {
     // 智能获取目标主机列表
     const discoveredHosts = await this.getTargetHosts();
-    
+
     // 如果有上次成功的主机，优先尝试
     const targetHosts = this.lastSuccessfulHost
       ? [
@@ -332,7 +333,7 @@ class TunnelManager {  constructor() {
           if (this.lastSuccessfulHost !== hostname) {
             this.lastSuccessfulHost = hostname
             Logger.info(`✅ 成功连接到 Home Assistant: ${hostname}`);
-            
+
             // 更新发现缓存中的成功信息
             const hostInfo = this.discoveredHosts.find(h => h.host === hostname);
             if (hostInfo) {
@@ -357,10 +358,10 @@ class TunnelManager {  constructor() {
     // 检查是否需要重新发现（缓存5分钟）
     const cacheTimeout = 5 * 60 * 1000; // 5分钟
     const now = Date.now();
-    
-    if (this.lastDiscoveryTime && 
-        (now - this.lastDiscoveryTime) < cacheTimeout && 
-        this.discoveredHosts.length > 0) {
+
+    if (this.lastDiscoveryTime &&
+      (now - this.lastDiscoveryTime) < cacheTimeout &&
+      this.discoveredHosts.length > 0) {
       Logger.info('🔄 使用缓存的主机发现结果');
       return this.discoveredHosts.map(h => h.host);
     }
@@ -368,18 +369,18 @@ class TunnelManager {  constructor() {
     try {
       Logger.info('🚀 开始智能发现 Home Assistant 实例...');
       const discoveryResults = await this.haDiscovery.discoverHomeAssistant();
-      
+
       // 更新发现结果
       this.discoveredHosts = discoveryResults.discovered;
       this.lastDiscoveryTime = now;
-      
+
       // 记录发现结果
       if (this.discoveredHosts.length > 0) {
         Logger.info(`✅ 发现 ${this.discoveredHosts.length} 个 Home Assistant 实例:`);
         this.discoveredHosts.forEach((host, index) => {
           Logger.info(`   ${index + 1}. ${host.host}:${host.port} (置信度: ${host.confidence}%, 方法: ${host.discoveryMethod})`);
         });
-        
+
         if (discoveryResults.recommendedHost) {
           Logger.info(`🎯 推荐主机: ${discoveryResults.recommendedHost.host}:${discoveryResults.recommendedHost.port}`);
           // 更新最佳主机
@@ -392,10 +393,10 @@ class TunnelManager {  constructor() {
       // 生成主机列表（包含发现的和默认的）
       const discoveredHostList = this.discoveredHosts.map(h => h.host);
       const defaultHosts = this.getDefaultTargetHosts();
-      
+
       // 合并并去重，优先使用发现的主机
       const allHosts = [...new Set([...discoveredHostList, ...defaultHosts])];
-      
+
       return allHosts;
 
     } catch (error) {
@@ -567,7 +568,7 @@ class TunnelManager {  constructor() {
   async smartConnectWebSocketToHA(message) {
     // 智能获取目标主机列表
     const discoveredHosts = await this.getTargetHosts();
-    
+
     const targetHosts = this.lastSuccessfulHost
       ? [
         this.lastSuccessfulHost,
@@ -587,7 +588,7 @@ class TunnelManager {  constructor() {
           if (this.lastSuccessfulHost !== hostname) {
             this.lastSuccessfulHost = hostname
             Logger.info(`🎯 记住成功地址: ${hostname}`)
-            
+
             // 更新发现缓存中的成功信息
             const hostInfo = this.discoveredHosts.find(h => h.host === hostname);
             if (hostInfo) {
@@ -852,7 +853,7 @@ class TunnelManager {  constructor() {
   }
   async testLocalConnection() {
     Logger.info('🧪 测试本地 Home Assistant 连接...');
-    
+
     try {
       const targetHosts = await this.getTargetHosts();
 
@@ -871,7 +872,7 @@ class TunnelManager {  constructor() {
 
       Logger.warn('⚠️  所有主机测试连接失败');
       return false;
-      
+
     } catch (error) {
       Logger.error(`测试连接过程出错: ${error.message}`);
       return false;
@@ -897,7 +898,7 @@ class TunnelManager {  constructor() {
       const req = http.request(options, (res) => {
         // 收集响应数据以验证是否为HA
         let data = '';
-        
+
         res.on('data', (chunk) => {
           data += chunk.toString();
           // 限制数据大小以避免内存问题
@@ -938,13 +939,13 @@ class TunnelManager {  constructor() {
     }
 
     const content = (body || '').toLowerCase();
-    
+
     // 检查关键的HA标识
     return content.includes('home assistant') ||
-           content.includes('homeassistant') ||
-           content.includes('hass-frontend') ||
-           content.includes('home-assistant-main') ||
-           content.includes('frontend_latest');
+      content.includes('homeassistant') ||
+      content.includes('hass-frontend') ||
+      content.includes('home-assistant-main') ||
+      content.includes('frontend_latest');
   }
 
   getStatus() {
@@ -1023,7 +1024,7 @@ class TunnelManager {  constructor() {
   removeCustomHost(host) {
     const originalLength = this.discoveredHosts.length;
     this.discoveredHosts = this.discoveredHosts.filter(h => !(h.host === host && h.isCustom));
-    
+
     if (this.discoveredHosts.length < originalLength) {
       Logger.info(`➖ 移除自定义主机: ${host}`);
       return true;

@@ -45,7 +45,7 @@ class HANetworkDiscovery {
       // 第一步：优先尝试已知的最佳地址
       Logger.info('🚀 优先尝试已知的 Home Assistant 地址...');
       const quickResult = await this.tryKnownHosts();
-      
+
       if (quickResult && quickResult.length > 0) {
         Logger.info(`✅ 快速发现成功，找到 ${quickResult.length} 个 HA 实例`);
         results.discovered = quickResult;
@@ -56,7 +56,7 @@ class HANetworkDiscovery {
 
       // 第二步：如果快速发现失败，进行完整扫描
       Logger.info('⚠️ 快速发现失败，开始完整网络扫描...');
-      
+
       // 并行执行多种发现方法
       const [networkHosts, mDNSHosts, commonHosts, pingHosts] = await Promise.allSettled([
         this.scanLocalNetwork(),
@@ -115,9 +115,9 @@ class HANetworkDiscovery {
 
       for (const range of networkInterfaces) {
         // 修复：正确显示网段信息
-        const networkDisplay = range.network ? 
-          (typeof range.network === 'string' ? range.network : 
-           `${range.network.network}/${range.network.cidr}`) : 
+        const networkDisplay = range.network ?
+          (typeof range.network === 'string' ? range.network :
+            `${range.network.network}/${range.network.cidr}`) :
           `${range.interface} 网段`;
         Logger.info(`🔍 扫描网段: ${networkDisplay}`);
         const rangeHosts = await this.scanNetworkRange(range);
@@ -142,7 +142,7 @@ class HANetworkDiscovery {
     const interfacePriority = {
       // 真实网络接口（最高优先级）
       'WLAN': 1,
-      'WiFi': 1, 
+      'WiFi': 1,
       'Wi-Fi': 1,
       'Ethernet': 2,
       'eth0': 2,
@@ -236,12 +236,12 @@ class HANetworkDiscovery {
     ];
 
     const ipParts = ip.split('.').map(Number);
-    
+
     for (const range of dockerRanges) {
       const [network, cidr] = range.split('/');
       const networkParts = network.split('.').map(Number);
       const cidrNum = parseInt(cidr);
-      
+
       // 简单的网络匹配
       if (cidrNum >= 16) {
         if (ipParts[0] === networkParts[0] && ipParts[1] === networkParts[1]) {
@@ -249,7 +249,7 @@ class HANetworkDiscovery {
         }
       }
     }
-    
+
     return false;
   }
 
@@ -258,7 +258,7 @@ class HANetworkDiscovery {
    */
   isLikelyLANNetwork(ip) {
     const ipParts = ip.split('.').map(Number);
-    
+
     // 常见的局域网网段
     const lanRanges = [
       { start: [192, 168], end: [192, 168] },  // 192.168.x.x
@@ -268,17 +268,17 @@ class HANetworkDiscovery {
 
     for (const range of lanRanges) {
       if (ipParts[0] >= range.start[0] && ipParts[0] <= range.end[0] &&
-          ipParts[1] >= range.start[1] && ipParts[1] <= range.end[1]) {
-        
+        ipParts[1] >= range.start[1] && ipParts[1] <= range.end[1]) {
+
         // 特殊处理：排除明显的 Docker 网段
         if (ipParts[0] === 172 && ipParts[1] >= 30) {
           return false; // 172.30.x.x 及以上通常是 Docker
         }
-        
+
         return true;
       }
     }
-    
+
     return false;
   }
 
@@ -330,12 +330,12 @@ class HANetworkDiscovery {
           baseIP = networkInfo.network.network.substring(0, networkInfo.network.network.lastIndexOf('.'));
         }
       }
-      
+
       // 如果无法获取基础IP，使用网关地址作为基础
       if (!baseIP && networkInfo.gateway) {
         baseIP = networkInfo.gateway.substring(0, networkInfo.gateway.lastIndexOf('.'));
       }
-      
+
       // 默认使用常见的网段
       if (!baseIP) {
         baseIP = '192.168.1';
@@ -714,10 +714,10 @@ class HANetworkDiscovery {
 
     // 检查HTML结构特征
     const hasHAStructure = content.includes('<title>home assistant</title>') ||
-                          content.includes('app-drawer-layout') ||
-                          content.includes('home-assistant-main') ||
-                          headers['x-ha-access'] ||
-                          content.includes('manifest.json');
+      content.includes('app-drawer-layout') ||
+      content.includes('home-assistant-main') ||
+      headers['x-ha-access'] ||
+      content.includes('manifest.json');
 
     // 排除明显不是HA的响应
     const excludePatterns = [
@@ -817,27 +817,27 @@ class HANetworkDiscovery {
    */
   isRealLANAddress(host) {
     if (!host) return false;
-    
+
     // 本地地址
     if (host === '127.0.0.1' || host === 'localhost') return true;
-    
+
     // mDNS 地址
     if (host.endsWith('.local')) return true;
-    
+
     // 私有网络地址，但排除常见的Docker网络
     if (host.startsWith('192.168.')) return true;  // 家庭网络
     if (host.startsWith('10.0.') || host.startsWith('10.1.')) return true; // 企业网络
-    
+
     // 排除Docker常用的网段
     if (host.startsWith('172.17.') ||  // Docker默认网桥
-        host.startsWith('172.18.') ||  // Docker自定义网桥
-        host.startsWith('172.19.') ||
-        host.startsWith('172.20.') ||
-        host.startsWith('172.30.') ||  // 常见Docker网段
-        host.startsWith('172.31.')) {
+      host.startsWith('172.18.') ||  // Docker自定义网桥
+      host.startsWith('172.19.') ||
+      host.startsWith('172.20.') ||
+      host.startsWith('172.30.') ||  // 常见Docker网段
+      host.startsWith('172.31.')) {
       return false;
     }
-    
+
     // 其他172网段可能是真实局域网
     if (host.startsWith('172.')) {
       const parts = host.split('.');
@@ -848,7 +848,7 @@ class HANetworkDiscovery {
         return second >= 16 && second <= 31 && second !== 17 && second !== 30 && second !== 31;
       }
     }
-    
+
     return false;
   }
 
@@ -953,7 +953,7 @@ class HANetworkDiscovery {
 
     // 等待所有快速检测完成（最多2秒）
     const quickResults = await Promise.allSettled(checkPromises);
-    
+
     for (const result of quickResults) {
       if (result.status === 'fulfilled' && result.value) {
         results.push(result.value);
