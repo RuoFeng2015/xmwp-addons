@@ -99,7 +99,12 @@ class HANetworkDiscovery {
       const networkInterfaces = this.getLocalNetworkRanges();
 
       for (const range of networkInterfaces) {
-        Logger.info(`🔍 扫描网段: ${range.network}`);
+        // 修复：正确显示网段信息
+        const networkDisplay = range.network ? 
+          (typeof range.network === 'string' ? range.network : 
+           `${range.network.network}/${range.network.cidr}`) : 
+          `${range.interface} 网段`;
+        Logger.info(`🔍 扫描网段: ${networkDisplay}`);
         const rangeHosts = await this.scanNetworkRange(range);
         hosts.push(...rangeHosts);
       }
@@ -158,7 +163,7 @@ class HANetworkDiscovery {
       }, 0);
 
       return {
-        network: `${networkParts.join('.')}.0`,
+        network: networkParts.join('.'),  // 修复：移除多余的 .0
         broadcast: broadcastParts.join('.'),
         cidr: cidr,
         range: `${networkParts.join('.')}.1-${broadcastParts.join('.')}`
@@ -176,11 +181,29 @@ class HANetworkDiscovery {
 
     try {
       // 修复：正确处理网络信息对象
-      const networkStr = typeof networkInfo.network === 'string' ?
-        networkInfo.network :
-        `${networkInfo.network.network || '192.168.1.0'}`;
+      let baseIP;
+      if (networkInfo.network) {
+        if (typeof networkInfo.network === 'string') {
+          // 如果是字符串形式的网络地址
+          baseIP = networkInfo.network.substring(0, networkInfo.network.lastIndexOf('.'));
+        } else if (typeof networkInfo.network === 'object' && networkInfo.network.network) {
+          // 如果是对象形式的网络信息
+          baseIP = networkInfo.network.network.substring(0, networkInfo.network.network.lastIndexOf('.'));
+        }
+      }
+      
+      // 如果无法获取基础IP，使用网关地址作为基础
+      if (!baseIP && networkInfo.gateway) {
+        baseIP = networkInfo.gateway.substring(0, networkInfo.gateway.lastIndexOf('.'));
+      }
+      
+      // 默认使用常见的网段
+      if (!baseIP) {
+        baseIP = '192.168.1';
+        Logger.warn('无法确定网段，使用默认网段 192.168.1.x');
+      }
 
-      const baseIP = networkStr.substring(0, networkStr.lastIndexOf('.'));
+      Logger.debug(`扫描基础网段: ${baseIP}.x`);
 
       // 并发扫描常见的主机地址
       const scanPromises = [];
