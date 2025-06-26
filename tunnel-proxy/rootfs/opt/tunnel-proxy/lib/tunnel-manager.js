@@ -888,7 +888,25 @@ class TunnelManager {  constructor() {
       }
 
       const req = http.request(options, (res) => {
-        resolve(true)
+        // 收集响应数据以验证是否为HA
+        let data = '';
+        
+        res.on('data', (chunk) => {
+          data += chunk.toString();
+          // 限制数据大小以避免内存问题
+          if (data.length > 5120) { // 5KB足够检测HA特征
+            req.destroy();
+          }
+        });
+
+        res.on('end', () => {
+          // 验证响应是否真的是Home Assistant
+          if (this.isHomeAssistantResponse(res, data)) {
+            resolve(true);
+          } else {
+            reject(new Error(`非Home Assistant服务 (状态码: ${res.statusCode})`));
+          }
+        });
       })
 
       req.on('error', (error) => {
@@ -902,6 +920,24 @@ class TunnelManager {  constructor() {
 
       req.end()
     })
+  }
+
+  /**
+   * 简化的HA响应验证（复用发现模块的逻辑）
+   */
+  isHomeAssistantResponse(response, body) {
+    if (!response || response.statusCode < 200 || response.statusCode >= 500) {
+      return false;
+    }
+
+    const content = (body || '').toLowerCase();
+    
+    // 检查关键的HA标识
+    return content.includes('home assistant') ||
+           content.includes('homeassistant') ||
+           content.includes('hass-frontend') ||
+           content.includes('home-assistant-main') ||
+           content.includes('frontend_latest');
   }
 
   getStatus() {

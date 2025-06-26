@@ -123,24 +123,148 @@ class HANetworkDiscovery {
     const ranges = [];
     const interfaces = os.networkInterfaces();
 
+    // 定义网络接口优先级（数字越小优先级越高）
+    const interfacePriority = {
+      // 真实网络接口（最高优先级）
+      'WLAN': 1,
+      'WiFi': 1, 
+      'Wi-Fi': 1,
+      'Ethernet': 2,
+      'eth0': 2,
+      'eth1': 2,
+      'en0': 2,
+      'en1': 2,
+      'wlan0': 1,
+      'wlan1': 1,
+      // Docker 网络（低优先级）
+      'docker0': 9,
+      'br-': 9,
+      // VMware 网络（中等优先级，用于开发环境）
+      'VMware': 7,
+      'vEthernet': 7,
+      // 其他虚拟网络
+      'vboxnet': 8,
+      'Hyper-V': 8
+    };
+
+    // 获取所有候选网络接口
+    const candidates = [];
+
     for (const [name, addrs] of Object.entries(interfaces)) {
       if (!addrs) continue;
 
       for (const addr of addrs) {
         if (addr.family === 'IPv4' && !addr.internal && addr.address !== '127.0.0.1') {
+          // 过滤掉明显的 Docker 内部网络
+          if (this.isDockerNetwork(addr.address)) {
+            Logger.debug(`跳过 Docker 网络: ${name} - ${addr.address}`);
+            continue;
+          }
+
           const network = this.calculateNetworkRange(addr.address, addr.netmask);
           if (network) {
-            ranges.push({
+            // 确定接口优先级
+            let priority = 5; // 默认优先级
+            for (const [pattern, prio] of Object.entries(interfacePriority)) {
+              if (name.toLowerCase().includes(pattern.toLowerCase())) {
+                priority = prio;
+                break;
+              }
+            }
+
+            candidates.push({
               interface: name,
               network: network,
-              gateway: addr.address
+              gateway: addr.address,
+              priority: priority,
+              isLikelyLAN: this.isLikelyLANNetwork(addr.address)
             });
           }
         }
       }
     }
 
+    // 按优先级排序，LAN 网络优先
+    candidates.sort((a, b) => {
+      // 首先按是否为 LAN 网络排序
+      if (a.isLikelyLAN !== b.isLikelyLAN) {
+        return a.isLikelyLAN ? -1 : 1;
+      }
+      // 然后按优先级排序
+      return a.priority - b.priority;
+    });
+
+    // 限制扫描的网络数量，优先扫描前3个
+    const maxNetworks = 3;
+    ranges.push(...candidates.slice(0, maxNetworks));
+
+    Logger.info(`网络接口筛选结果: ${ranges.length}/${candidates.length} 个网络将被扫描`);
+    ranges.forEach((range, index) => {
+      Logger.debug(`  ${index + 1}. ${range.interface} - ${range.gateway} (LAN: ${range.isLikelyLAN}, 优先级: ${range.priority})`);
+    });
+
     return ranges;
+  }
+
+  /**
+   * 判断是否为 Docker 网络
+   */
+  isDockerNetwork(ip) {
+    // Docker 默认网络范围
+    const dockerRanges = [
+      '172.17.0.0/16',  // docker0
+      '172.18.0.0/16',  // 自定义网络
+      '172.19.0.0/16',
+      '172.20.0.0/16',
+      '172.30.0.0/16',  // 用户日志中的网段
+      '172.31.0.0/16'
+    ];
+
+    const ipParts = ip.split('.').map(Number);
+    
+    for (const range of dockerRanges) {
+      const [network, cidr] = range.split('/');
+      const networkParts = network.split('.').map(Number);
+      const cidrNum = parseInt(cidr);
+      
+      // 简单的网络匹配
+      if (cidrNum >= 16) {
+        if (ipParts[0] === networkParts[0] && ipParts[1] === networkParts[1]) {
+          return true;
+        }
+      }
+    }
+    
+    return false;
+  }
+
+  /**
+   * 判断是否可能是局域网网络
+   */
+  isLikelyLANNetwork(ip) {
+    const ipParts = ip.split('.').map(Number);
+    
+    // 常见的局域网网段
+    const lanRanges = [
+      { start: [192, 168], end: [192, 168] },  // 192.168.x.x
+      { start: [10, 0], end: [10, 255] },      // 10.x.x.x
+      { start: [172, 16], end: [172, 31] }     // 172.16.x.x - 172.31.x.x (排除 Docker 常用的)
+    ];
+
+    for (const range of lanRanges) {
+      if (ipParts[0] >= range.start[0] && ipParts[0] <= range.end[0] &&
+          ipParts[1] >= range.start[1] && ipParts[1] <= range.end[1]) {
+        
+        // 特殊处理：排除明显的 Docker 网段
+        if (ipParts[0] === 172 && ipParts[1] >= 30) {
+          return false; // 172.30.x.x 及以上通常是 Docker
+        }
+        
+        return true;
+      }
+    }
+    
+    return false;
   }
 
   /**
@@ -541,7 +665,7 @@ class HANetworkDiscovery {
   }
 
   /**
-   * 判断是否为 Home Assistant 响应
+   * 判断是否为 Home Assistant 响应（更严格的检测）
    */
   isHomeAssistantResponse(response) {
     if (!response || response.statusCode < 200 || response.statusCode >= 500) {
@@ -552,31 +676,54 @@ class HANetworkDiscovery {
     const content = (body || '').toLowerCase();
     const serverHeader = (headers.server || '').toLowerCase();
 
-    // 检查 HTML 内容
-    const haIndicators = [
+    // 必须包含明确的 Home Assistant 标识
+    const strongIndicators = [
       'home assistant',
       'homeassistant',
       'hass-frontend',
-      'hassio',
-      'supervisor'
+      'home-assistant-main',
+      'frontend_latest'
     ];
 
-    for (const indicator of haIndicators) {
-      if (content.includes(indicator) || serverHeader.includes(indicator)) {
-        return true;
+    let hasStrongIndicator = false;
+    for (const indicator of strongIndicators) {
+      if (content.includes(indicator)) {
+        hasStrongIndicator = true;
+        break;
       }
     }
 
-    // 检查特定的 Home Assistant 特征
-    if (content.includes('<title>home assistant</title>') ||
-      content.includes('app-drawer-layout') ||
-      content.includes('home-assistant-main') ||
-      headers['x-ha-access'] ||
-      content.includes('frontend_latest')) {
-      return true;
+    // 如果没有强指标，直接返回false
+    if (!hasStrongIndicator) {
+      return false;
     }
 
-    return false;
+    // 检查HTML结构特征
+    const hasHAStructure = content.includes('<title>home assistant</title>') ||
+                          content.includes('app-drawer-layout') ||
+                          content.includes('home-assistant-main') ||
+                          headers['x-ha-access'] ||
+                          content.includes('manifest.json');
+
+    // 排除明显不是HA的响应
+    const excludePatterns = [
+      'nginx',
+      'apache',
+      'iis',
+      'tomcat',
+      'jetty',
+      'error 404',
+      'not found',
+      'access denied'
+    ];
+
+    for (const pattern of excludePatterns) {
+      if (content.includes(pattern) || serverHeader.includes(pattern)) {
+        return false;
+      }
+    }
+
+    return hasStrongIndicator && (hasHAStructure || response.statusCode === 200);
   }
 
   /**
@@ -630,24 +777,65 @@ class HANetworkDiscovery {
   selectBestHost(hosts) {
     if (hosts.length === 0) return null;
 
-    // 优先选择置信度最高的
-    const bestHost = hosts[0];
+    // 按优先级排序主机
+    const sortedHosts = hosts.sort((a, b) => {
+      // 1. 优先选择真正的局域网地址（排除Docker内部地址）
+      const aIsRealLAN = this.isRealLANAddress(a.host);
+      const bIsRealLAN = this.isRealLANAddress(b.host);
+      if (aIsRealLAN && !bIsRealLAN) return -1;
+      if (!aIsRealLAN && bIsRealLAN) return 1;
 
-    // 如果置信度足够高，直接返回
-    if (bestHost.confidence >= 80) {
-      return bestHost;
+      // 2. 优先选择 .local 域名（mDNS）
+      const aIsLocal = a.host.endsWith('.local');
+      const bIsLocal = b.host.endsWith('.local');
+      if (aIsLocal && !bIsLocal) return -1;
+      if (!aIsLocal && bIsLocal) return 1;
+
+      // 3. 按置信度排序
+      return b.confidence - a.confidence;
+    });
+
+    return sortedHosts[0];
+  }
+
+  /**
+   * 判断是否为真正的局域网地址（排除Docker内部网络）
+   */
+  isRealLANAddress(host) {
+    if (!host) return false;
+    
+    // 本地地址
+    if (host === '127.0.0.1' || host === 'localhost') return true;
+    
+    // mDNS 地址
+    if (host.endsWith('.local')) return true;
+    
+    // 私有网络地址，但排除常见的Docker网络
+    if (host.startsWith('192.168.')) return true;  // 家庭网络
+    if (host.startsWith('10.0.') || host.startsWith('10.1.')) return true; // 企业网络
+    
+    // 排除Docker常用的网段
+    if (host.startsWith('172.17.') ||  // Docker默认网桥
+        host.startsWith('172.18.') ||  // Docker自定义网桥
+        host.startsWith('172.19.') ||
+        host.startsWith('172.20.') ||
+        host.startsWith('172.30.') ||  // 常见Docker网段
+        host.startsWith('172.31.')) {
+      return false;
     }
-
-    // 否则检查是否有本地主机（更稳定）
-    const localHosts = hosts.filter(h =>
-      h.host === '127.0.0.1' ||
-      h.host === 'localhost' ||
-      h.host.startsWith('192.168.') ||
-      h.host.startsWith('10.0.') ||
-      h.host.startsWith('172.')
-    );
-
-    return localHosts.length > 0 ? localHosts[0] : bestHost;
+    
+    // 其他172网段可能是真实局域网
+    if (host.startsWith('172.')) {
+      const parts = host.split('.');
+      if (parts.length >= 2) {
+        const second = parseInt(parts[1]);
+        // RFC 1918: 172.16.0.0/12 (172.16.0.0 到 172.31.255.255)
+        // 但排除常见的Docker使用的范围
+        return second >= 16 && second <= 31 && second !== 17 && second !== 30 && second !== 31;
+      }
+    }
+    
+    return false;
   }
 
   /**
