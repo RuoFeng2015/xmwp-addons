@@ -1,12 +1,8 @@
 {
-  "connection_type": "domain",
+  "connection_type": "invalid",
   "server_host": "114.132.237.146",
-  "server_domain": "tunnel.wzzhk.club",
   "server_port": 3080,
-  "local_ha_port": 8123,
   "username": "admin",
-  "password": "password",
-  "client_id": "ha-client-001",
-  "proxy_port": 19001,
-  "log_level": "debug"
+  "password": "password123",
+  "client_id": "ha-client-error3"
 }

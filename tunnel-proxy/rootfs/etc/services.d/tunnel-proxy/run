@@ -6,9 +6,24 @@
 
 bashio::log.info "正在启动内网穿透代理服务..."
 
-# 检查配置
-if ! bashio::config.has_value 'server_host'; then
-    bashio::log.fatal "未配置服务器地址 (server_host)"
+# 获取连接类型
+CONNECTION_TYPE=$(bashio::config 'connection_type')
+
+# 根据连接类型检查相应的配置
+if [ "$CONNECTION_TYPE" = "ip" ]; then
+    if ! bashio::config.has_value 'server_host'; then
+        bashio::log.fatal "使用IP连接时，必须配置服务器地址 (server_host)"
+        bashio::exit.nok
+    fi
+    bashio::log.info "使用IP连接模式: $(bashio::config 'server_host')"
+elif [ "$CONNECTION_TYPE" = "domain" ]; then
+    if ! bashio::config.has_value 'server_domain'; then
+        bashio::log.fatal "使用域名连接时，必须配置服务器域名 (server_domain)"
+        bashio::exit.nok
+    fi
+    bashio::log.info "使用域名连接模式: $(bashio::config 'server_domain')"
+else
+    bashio::log.fatal "无效的连接类型: $CONNECTION_TYPE (必须是 'ip' 或 'domain')"
     bashio::exit.nok
 fi
 
