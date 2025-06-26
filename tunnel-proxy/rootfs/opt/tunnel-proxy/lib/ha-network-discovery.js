@@ -24,7 +24,7 @@ class HANetworkDiscovery {
   }
 
   /**
-   * 主要的发现方法 - 组合多种扫描技术
+   * 主要的发现方法 - 优先快速连接，失败后进行完整扫描
    */
   async discoverHomeAssistant() {
     Logger.info('🔍 开始智能搜索局域网中的 Home Assistant 实例...');
@@ -41,8 +41,23 @@ class HANetworkDiscovery {
       scanTime: Date.now()
     };
 
-    // 并行执行多种发现方法
     try {
+      // 第一步：优先尝试已知的最佳地址
+      Logger.info('🚀 优先尝试已知的 Home Assistant 地址...');
+      const quickResult = await this.tryKnownHosts();
+      
+      if (quickResult && quickResult.length > 0) {
+        Logger.info(`✅ 快速发现成功，找到 ${quickResult.length} 个 HA 实例`);
+        results.discovered = quickResult;
+        results.recommendedHost = this.selectBestHost(quickResult);
+        results.methods.commonHosts = quickResult;
+        return results;
+      }
+
+      // 第二步：如果快速发现失败，进行完整扫描
+      Logger.info('⚠️ 快速发现失败，开始完整网络扫描...');
+      
+      // 并行执行多种发现方法
       const [networkHosts, mDNSHosts, commonHosts, pingHosts] = await Promise.allSettled([
         this.scanLocalNetwork(),
         this.discoverViaMDNS(),
@@ -555,12 +570,12 @@ class HANetworkDiscovery {
   /**
    * 检查主机是否运行 Home Assistant
    */
-  async checkHostForHA(host, port = null) {
+  async checkHostForHA(host, port = null, timeout = 5000) {
     const portsToCheck = port ? [port] : this.commonPorts;
 
     for (const checkPort of portsToCheck) {
       try {
-        const result = await this.httpCheck(host, checkPort);
+        const result = await this.httpCheck(host, checkPort, timeout);
         if (result && this.isHomeAssistantResponse(result)) {
           return {
             host: host,
@@ -585,13 +600,13 @@ class HANetworkDiscovery {
   /**
    * HTTP 检查
    */
-  async httpCheck(host, port) {
+  async httpCheck(host, port, timeout = 5000) {
     const protocols = port === 443 || port === 8443 ? ['https', 'http'] : ['http', 'https'];
 
     for (const protocol of protocols) {
       try {
         const startTime = Date.now();
-        const result = await this.makeHttpRequest(protocol, host, port);
+        const result = await this.makeHttpRequest(protocol, host, port, timeout);
         const responseTime = Date.now() - startTime;
 
         return {
@@ -610,10 +625,9 @@ class HANetworkDiscovery {
   /**
    * 发起 HTTP 请求
    */
-  async makeHttpRequest(protocol, host, port) {
+  async makeHttpRequest(protocol, host, port, timeout = 5000) {
     return new Promise((resolve, reject) => {
       const httpModule = protocol === 'https' ? https : http;
-      const timeout = 5000;
 
       const options = {
         hostname: host,
@@ -907,6 +921,46 @@ class HANetworkDiscovery {
   clearCache() {
     this.discoveredHosts.clear();
     this.scanResults = [];
+  }
+
+  /**
+   * 快速尝试已知的 Home Assistant 地址
+   * 按优先级顺序尝试最可能的地址
+   */
+  async tryKnownHosts() {
+    const knownHosts = [
+      'homeassistant.local',    // 最高优先级：官方推荐地址
+      '192.168.6.170',          // 用户已知的具体地址
+      'hassio.local',           // 备用地址
+      '127.0.0.1',              // 本地地址
+      'localhost'               // 本地地址备用
+    ];
+
+    const results = [];
+    const checkPromises = knownHosts.map(async (host) => {
+      try {
+        Logger.info(`🔗 快速检测: ${host}:8123`);
+        const result = await this.checkHostForHA(host, 8123, 2000); // 2秒超时，更快
+        if (result) {
+          Logger.info(`✅ 快速发现成功: ${host}:8123`);
+          return result;
+        }
+      } catch (error) {
+        Logger.debug(`❌ 快速检测失败: ${host} - ${error.message}`);
+        return null;
+      }
+    });
+
+    // 等待所有快速检测完成（最多2秒）
+    const quickResults = await Promise.allSettled(checkPromises);
+    
+    for (const result of quickResults) {
+      if (result.status === 'fulfilled' && result.value) {
+        results.push(result.value);
+      }
+    }
+
+    return results;
   }
 }
 

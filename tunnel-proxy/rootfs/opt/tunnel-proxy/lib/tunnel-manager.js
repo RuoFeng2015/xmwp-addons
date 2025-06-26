@@ -11,6 +11,13 @@ const HANetworkDiscovery = require('./ha-network-discovery')
  * 隧道连接管理类
  */
 class TunnelManager {  constructor() {
+    // 确保配置已加载
+    try {
+      ConfigManager.loadConfig();
+    } catch (error) {
+      Logger.debug('配置可能已经加载或配置文件不存在，继续初始化');
+    }
+    
     this.lastSuccessfulHost = null
     this.wsConnections = new Map() // WebSocket连接存储
     this.tunnelClient = null
