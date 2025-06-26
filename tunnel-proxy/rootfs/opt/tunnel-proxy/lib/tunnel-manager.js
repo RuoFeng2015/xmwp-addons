@@ -1,27 +1,32 @@
 const WebSocket = require('ws')
 const http = require('http')
 const crypto = require('crypto')
+const { isBinaryFile } = require('isbinaryfile')
 const Logger = require('./logger')
 const { getConfig, ConfigManager } = require('./config')
 const TunnelClient = require('../tunnel-client')
+const HANetworkDiscovery = require('./ha-network-discovery')
 
 /**
  * 隧道连接管理类
  */
-class TunnelManager {
-  constructor() {
+class TunnelManager {  constructor() {
     this.lastSuccessfulHost = null
     this.wsConnections = new Map() // WebSocket连接存储
     this.tunnelClient = null
     this.connectionStatus = 'disconnected'
     this.lastHeartbeat = null
+    this.haDiscovery = new HANetworkDiscovery() // 网络发现实例
+    this.discoveredHosts = [] // 发现的主机列表
+    this.lastDiscoveryTime = null // 上次发现时间
+    this.discoveryCache = new Map() // 发现结果缓存
   }
   async connectToServer() {
     return new Promise((resolve, reject) => {
       try {
         const config = getConfig()
         const serverHost = ConfigManager.getServerHost()
-        
+
         Logger.info(`正在连接到中转服务器: ${serverHost}:${config.server_port}`)
         Logger.info(`连接方式: ${ConfigManager.getConnectionInfo()}`)
 
@@ -95,7 +100,6 @@ class TunnelManager {
   handleProxyRequest(message) {
     this.smartConnectToHA(message)
   }
-
   handleWebSocketUpgrade(message) {
     Logger.info(
       `🔄 处理WebSocket升级请求: ${message.upgrade_id} ${message.url}`
@@ -104,32 +108,187 @@ class TunnelManager {
   }
   handleWebSocketData(message) {
     const { upgrade_id, data } = message
-    console.log("%c Line:108 🍅 message", "color:#ed9ec7", message);
-    console.log('handleWebSocketData data', data)
     const wsConnection = this.wsConnections.get(upgrade_id)
+    if (!wsConnection || !wsConnection.socket) {
+      Logger.warn(`未找到WebSocket连接: ${upgrade_id}`)
+      return
+    }
 
-    if (wsConnection && wsConnection.socket) {
-      try {
-        // 将 base64 解码为字符串
-        const binaryData = Buffer.from(data, 'base64')
+    try {
+      // 将 base64 解码为 Buffer
+      const binaryData = Buffer.from(data, 'base64')
+      // 判断是否为二进制消息
+      const isBinaryMessage = this.isBinaryWebSocketMessage(binaryData)
+      if (isBinaryMessage) {
+        // 二进制消息直接发送
+        Logger.info(`📦 发送二进制WebSocket数据到HA: ${upgrade_id}, 大小: ${binaryData.length} bytes`)
+        wsConnection.socket.send(binaryData)
+      } else {
+        // 文本消息，尝试解码为UTF-8字符串
         const stringData = binaryData.toString('utf8')
-        // 验证是否为有效的JSON
-        try {
-          const jsonMessage = JSON.parse(stringData);
-          // 直接发送原始字符串数据，让WebSocket库处理
+
+        // 验证是否为有效的UTF-8字符串
+        if (this.isValidUTF8String(stringData)) {
+          // 尝试解析JSON以获取更多信息
+          try {
+            const jsonMessage = JSON.parse(stringData)
+            Logger.info(`✅ WebSocket JSON数据已发送到HA: ${upgrade_id}, 类型: ${jsonMessage.type}`)
+          } catch (jsonError) {
+            Logger.info(`📄 WebSocket文本数据已发送到HA: ${upgrade_id}, 长度: ${stringData.length}`)
+          }
+
+          // 发送文本数据
           wsConnection.socket.send(stringData)
-          Logger.info(`✅ WebSocket JSON数据已发送到HA: ${upgrade_id}, 类型: ${jsonMessage.type}`)
-        } catch (jsonError) {
-          console.log("%c Line:115 🥒 binaryData", "color:#fca650", binaryData);
-          console.log("%c Line:116 🎯 stringData", "color:#42b883", stringData);
-          Logger.warn(`⚠️ 数据不是有效JSON，发送原始二进制数据: ${jsonError.message}`)
+        } else {
+          // UTF-8解码失败，当作二进制数据处理
+          Logger.warn(`⚠️ UTF-8解码失败，作为二进制数据发送: ${upgrade_id}`)
           wsConnection.socket.send(binaryData)
         }
-      } catch (error) {
-        Logger.error(`WebSocket数据转发失败: ${error.message}`)
       }
-    } else {
-      Logger.warn(`未找到WebSocket连接: ${upgrade_id}`)
+    } catch (error) {
+      Logger.error(`WebSocket数据转发失败: ${error.message}`)
+    }
+  }
+  /**
+   * 检测Buffer是否包含二进制数据（同步版本）
+   * @param {Buffer} buffer - 要检查的数据缓冲区
+   * @returns {boolean} - true表示二进制数据，false表示文本数据
+   */
+  isBinaryWebSocketMessage(buffer) {
+    if (!Buffer.isBuffer(buffer) || buffer.length === 0) {
+      return false;
+    }
+
+    try {
+      // 快速检查：空字节强烈表示二进制数据
+      if (buffer.includes(0x00)) {
+        return true;
+      }
+
+      // 检查常见的二进制文件头
+      const binarySignatures = [
+        [0x89, 0x50, 0x4E, 0x47], // PNG
+        [0xFF, 0xD8, 0xFF],        // JPEG
+        [0x47, 0x49, 0x46],        // GIF
+        [0x52, 0x49, 0x46, 0x46], // RIFF (WAV, AVI等)
+        [0x50, 0x4B, 0x03, 0x04], // ZIP
+        [0x25, 0x50, 0x44, 0x46], // PDF
+        [0x7F, 0x45, 0x4C, 0x46], // ELF
+        [0x4D, 0x5A],              // PE/COFF (.exe, .dll)
+      ];
+
+      // 检查文件头
+      for (const signature of binarySignatures) {
+        if (buffer.length >= signature.length) {
+          let matches = true;
+          for (let i = 0; i < signature.length; i++) {
+            if (buffer[i] !== signature[i]) {
+              matches = false;
+              break;
+            }
+          }
+          if (matches) {
+            return true;
+          }
+        }
+      }
+
+      // 统计控制字符（优先检查，因为这是强指标）
+      let controlCharCount = 0;
+      const sampleSize = Math.min(buffer.length, 1024);
+      
+      for (let i = 0; i < sampleSize; i++) {
+        const byte = buffer[i];
+        
+        // 允许的控制字符：换行、回车、制表符
+        if (byte === 0x0A || byte === 0x0D || byte === 0x09) {
+          continue;
+        }
+        
+        // 其他控制字符
+        if (byte < 32) {
+          controlCharCount++;
+        }
+      }
+
+      // 如果控制字符超过15%，认为是二进制数据
+      const controlCharRatio = controlCharCount / sampleSize;
+      if (controlCharRatio > 0.15) {
+        return true;
+      }
+
+      // 检查是否为有效的UTF-8文本
+      if (this.isValidUTF8String(buffer)) {
+        return false; // 有效的UTF-8文本不是二进制数据
+      }
+
+      // 如果到这里还没确定，说明可能是编码有问题的数据，认为是二进制
+      return true;
+      
+    } catch (error) {
+      // 如果出错，回退到简单的空字节检查
+      Logger.error(`二进制检测错误: ${error.message}`);
+      return buffer.includes(0x00);
+    }
+  }
+
+  /**
+   * 异步检测Buffer是否包含二进制数据（使用 isbinaryfile 库）
+   * @param {Buffer} buffer - 要检查的数据缓冲区
+   * @returns {Promise<boolean>} - true表示二进制数据，false表示文本数据
+   */
+  async isBinaryWebSocketMessageAsync(buffer) {
+    if (!Buffer.isBuffer(buffer) || buffer.length === 0) {
+      return false;
+    }
+
+    try {
+      return await isBinaryFile(buffer);
+    } catch (error) {
+      Logger.error(`异步二进制检测错误: ${error.message}`);
+      return buffer.includes(0x00);
+    }
+  }
+  /**
+   * 验证是否为有效的UTF-8字符串或Buffer
+   * @param {string|Buffer} input - 要验证的字符串或Buffer
+   * @returns {boolean} - true表示有效的UTF-8
+   */
+  isValidUTF8String(input) {
+    try {
+      let text;
+      let buffer;
+      
+      if (Buffer.isBuffer(input)) {
+        buffer = input;
+        text = buffer.toString('utf8');
+      } else if (typeof input === 'string') {
+        text = input;
+        buffer = Buffer.from(text, 'utf8');
+      } else {
+        return false;
+      }
+
+      // 检查字符串是否包含替换字符（�），这通常表示UTF-8解码失败
+      if (text.includes('\uFFFD')) {
+        return false;
+      }
+
+      // 检查字符串长度
+      if (text.length === 0) {
+        return true;
+      }
+
+      // 尝试重新编码验证一致性
+      if (Buffer.isBuffer(input)) {
+        const reencoded = Buffer.from(text, 'utf8');
+        return reencoded.equals(buffer);
+      } else {
+        const reencoded = Buffer.from(text, 'utf8').toString('utf8');
+        return reencoded === text;
+      }
+    } catch (error) {
+      return false;
     }
   }
 
@@ -144,43 +303,118 @@ class TunnelManager {
       this.wsConnections.delete(upgrade_id)
     }
   }
-
   async smartConnectToHA(message) {
+    // 智能获取目标主机列表
+    const discoveredHosts = await this.getTargetHosts();
+    
+    // 如果有上次成功的主机，优先尝试
     const targetHosts = this.lastSuccessfulHost
       ? [
         this.lastSuccessfulHost,
-        ...this.getTargetHosts().filter((h) => h !== this.lastSuccessfulHost),
+        ...discoveredHosts.filter((h) => h !== this.lastSuccessfulHost),
       ]
-      : this.getTargetHosts()
+      : discoveredHosts;
+
+    Logger.info(`🔍 尝试连接 ${targetHosts.length} 个潜在的 Home Assistant 主机...`);
 
     for (const hostname of targetHosts) {
       try {
+        Logger.debug(`🔗 尝试连接: ${hostname}`);
         const success = await this.attemptHAConnection(message, hostname)
         if (success) {
           if (this.lastSuccessfulHost !== hostname) {
             this.lastSuccessfulHost = hostname
+            Logger.info(`✅ 成功连接到 Home Assistant: ${hostname}`);
+            
+            // 更新发现缓存中的成功信息
+            const hostInfo = this.discoveredHosts.find(h => h.host === hostname);
+            if (hostInfo) {
+              hostInfo.lastSuccessfulConnection = Date.now();
+              hostInfo.confidence = Math.min(hostInfo.confidence + 10, 100);
+            }
           }
           return
         }
       } catch (error) {
+        Logger.debug(`❌ 连接失败 ${hostname}: ${error.message}`);
         continue
       }
     }
 
     this.sendDetailedError(message, targetHosts)
   }
+  /**
+   * 获取目标主机列表 - 使用智能发现
+   */
+  async getTargetHosts() {
+    // 检查是否需要重新发现（缓存5分钟）
+    const cacheTimeout = 5 * 60 * 1000; // 5分钟
+    const now = Date.now();
+    
+    if (this.lastDiscoveryTime && 
+        (now - this.lastDiscoveryTime) < cacheTimeout && 
+        this.discoveredHosts.length > 0) {
+      Logger.info('🔄 使用缓存的主机发现结果');
+      return this.discoveredHosts.map(h => h.host);
+    }
 
-  getTargetHosts() {
+    try {
+      Logger.info('🚀 开始智能发现 Home Assistant 实例...');
+      const discoveryResults = await this.haDiscovery.discoverHomeAssistant();
+      
+      // 更新发现结果
+      this.discoveredHosts = discoveryResults.discovered;
+      this.lastDiscoveryTime = now;
+      
+      // 记录发现结果
+      if (this.discoveredHosts.length > 0) {
+        Logger.info(`✅ 发现 ${this.discoveredHosts.length} 个 Home Assistant 实例:`);
+        this.discoveredHosts.forEach((host, index) => {
+          Logger.info(`   ${index + 1}. ${host.host}:${host.port} (置信度: ${host.confidence}%, 方法: ${host.discoveryMethod})`);
+        });
+        
+        if (discoveryResults.recommendedHost) {
+          Logger.info(`🎯 推荐主机: ${discoveryResults.recommendedHost.host}:${discoveryResults.recommendedHost.port}`);
+          // 更新最佳主机
+          this.lastSuccessfulHost = discoveryResults.recommendedHost.host;
+        }
+      } else {
+        Logger.warn('⚠️  未发现任何 Home Assistant 实例，使用默认主机列表');
+      }
+
+      // 生成主机列表（包含发现的和默认的）
+      const discoveredHostList = this.discoveredHosts.map(h => h.host);
+      const defaultHosts = this.getDefaultTargetHosts();
+      
+      // 合并并去重，优先使用发现的主机
+      const allHosts = [...new Set([...discoveredHostList, ...defaultHosts])];
+      
+      return allHosts;
+
+    } catch (error) {
+      Logger.error(`智能发现失败: ${error.message}，使用默认主机列表`);
+      return this.getDefaultTargetHosts();
+    }
+  }
+
+  /**
+   * 获取默认目标主机列表（作为后备）
+   */
+  getDefaultTargetHosts() {
     return [
       '127.0.0.1',
       'localhost',
-      '192.168.6.170',
+      '192.168.6.170',  // 当前已知的工作地址
       'hassio.local',
-      '172.30.32.2',
+      'homeassistant.local',
+      '172.30.32.2',    // Docker 常见地址
       '192.168.6.1',
       '192.168.1.170',
+      '192.168.1.100',
+      '192.168.0.100',
       '10.0.0.170',
-    ]
+      '10.0.0.100'
+    ];
   }
 
   attemptHAConnection(message, hostname) {
@@ -323,14 +557,18 @@ class TunnelManager {
     this.tunnelClient.send(errorResponse)
     Logger.error(`发送详细错误页面: ${message.request_id}`)
   }
-
   async smartConnectWebSocketToHA(message) {
+    // 智能获取目标主机列表
+    const discoveredHosts = await this.getTargetHosts();
+    
     const targetHosts = this.lastSuccessfulHost
       ? [
         this.lastSuccessfulHost,
-        ...this.getTargetHosts().filter((h) => h !== this.lastSuccessfulHost),
+        ...discoveredHosts.filter((h) => h !== this.lastSuccessfulHost),
       ]
-      : this.getTargetHosts()
+      : discoveredHosts;
+
+    Logger.info(`🔍 尝试 WebSocket 连接 ${targetHosts.length} 个潜在的 Home Assistant 主机...`);
 
     for (const hostname of targetHosts) {
       try {
@@ -342,10 +580,18 @@ class TunnelManager {
           if (this.lastSuccessfulHost !== hostname) {
             this.lastSuccessfulHost = hostname
             Logger.info(`🎯 记住成功地址: ${hostname}`)
+            
+            // 更新发现缓存中的成功信息
+            const hostInfo = this.discoveredHosts.find(h => h.host === hostname);
+            if (hostInfo) {
+              hostInfo.lastSuccessfulConnection = Date.now();
+              hostInfo.confidence = Math.min(hostInfo.confidence + 10, 100);
+            }
           }
           return
         }
       } catch (error) {
+        Logger.debug(`❌ WebSocket 连接失败 ${hostname}: ${error.message}`);
         continue
       }
     }
@@ -597,23 +843,32 @@ class TunnelManager {
     this.tunnelClient.send(errorResponse)
     Logger.error(`WebSocket升级失败，尝试的主机: ${attemptedHosts.join(', ')}`)
   }
-
   async testLocalConnection() {
-    const targetHosts = this.getTargetHosts()
+    Logger.info('🧪 测试本地 Home Assistant 连接...');
+    
+    try {
+      const targetHosts = await this.getTargetHosts();
 
-    for (const hostname of targetHosts) {
-      try {
-        const success = await this.testSingleHost(hostname)
-        if (success) {
-          this.lastSuccessfulHost = hostname
-          return true
+      for (const hostname of targetHosts) {
+        try {
+          const success = await this.testSingleHost(hostname)
+          if (success) {
+            this.lastSuccessfulHost = hostname
+            Logger.info(`✅ 测试连接成功: ${hostname}`);
+            return true
+          }
+        } catch (error) {
+          Logger.debug(`❌ 测试连接失败: ${hostname} - ${error.message}`);
         }
-      } catch (error) {
-        // continue
       }
-    }
 
-    return false
+      Logger.warn('⚠️  所有主机测试连接失败');
+      return false;
+      
+    } catch (error) {
+      Logger.error(`测试连接过程出错: ${error.message}`);
+      return false;
+    }
   }
 
   testSingleHost(hostname) {
@@ -670,13 +925,94 @@ class TunnelManager {
       last_successful_host: this.lastSuccessfulHost,
     }
   }
-
   disconnect() {
     if (this.tunnelClient) {
       this.tunnelClient.disconnect()
       this.tunnelClient = null
     }
     this.connectionStatus = 'disconnected'
+  }
+
+  /**
+   * 手动触发网络发现
+   */
+  async triggerNetworkDiscovery() {
+    Logger.info('🔍 手动触发网络发现...');
+    this.lastDiscoveryTime = null; // 强制重新发现
+    this.haDiscovery.clearCache();
+    return await this.getTargetHosts();
+  }
+
+  /**
+   * 获取发现的主机信息
+   */
+  getDiscoveredHosts() {
+    return {
+      hosts: this.discoveredHosts,
+      lastDiscovery: this.lastDiscoveryTime,
+      cacheAge: this.lastDiscoveryTime ? Date.now() - this.lastDiscoveryTime : null,
+      recommendedHost: this.lastSuccessfulHost
+    };
+  }
+
+  /**
+   * 设置自定义主机
+   */
+  addCustomHost(host, port = 8123) {
+    const customHost = {
+      host: host,
+      port: port,
+      protocol: 'http',
+      confidence: 90,
+      discoveryMethod: 'manual',
+      lastChecked: Date.now(),
+      isCustom: true
+    };
+
+    // 添加到发现列表的开头（优先级最高）
+    this.discoveredHosts.unshift(customHost);
+    Logger.info(`➕ 添加自定义主机: ${host}:${port}`);
+  }
+
+  /**
+   * 移除自定义主机
+   */
+  removeCustomHost(host) {
+    const originalLength = this.discoveredHosts.length;
+    this.discoveredHosts = this.discoveredHosts.filter(h => !(h.host === host && h.isCustom));
+    
+    if (this.discoveredHosts.length < originalLength) {
+      Logger.info(`➖ 移除自定义主机: ${host}`);
+      return true;
+    }
+    return false;
+  }
+
+  /**
+   * 获取网络发现统计信息
+   */
+  getDiscoveryStats() {
+    const stats = {
+      totalDiscovered: this.discoveredHosts.length,
+      byMethod: {},
+      avgConfidence: 0,
+      lastSuccessfulHost: this.lastSuccessfulHost,
+      cacheAge: this.lastDiscoveryTime ? Date.now() - this.lastDiscoveryTime : null
+    };
+
+    // 按发现方法分组统计
+    for (const host of this.discoveredHosts) {
+      const method = host.discoveryMethod || 'unknown';
+      stats.byMethod[method] = (stats.byMethod[method] || 0) + 1;
+    }
+
+    // 计算平均置信度
+    if (this.discoveredHosts.length > 0) {
+      const totalConfidence = this.discoveredHosts.reduce((sum, host) => sum + (host.confidence || 0), 0);
+      stats.avgConfidence = Math.round(totalConfidence / this.discoveredHosts.length);
+    }
+
+    return stats;
   }
 }
 

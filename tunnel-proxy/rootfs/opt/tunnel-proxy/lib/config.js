@@ -75,7 +75,7 @@ class ConfigManager {
 
     // 验证连接方式和对应的服务器地址
     config.connection_type = config.connection_type || 'ip'
-    
+
     if (config.connection_type === 'ip') {
       if (!config.server_host) {
         Logger.error('使用IP连接时，必须配置 server_host')

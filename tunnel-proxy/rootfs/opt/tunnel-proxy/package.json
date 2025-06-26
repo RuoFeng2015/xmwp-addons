@@ -9,12 +9,18 @@
   "dependencies": {
     "@koa/cors": "^4.0.0",
     "axios": "^1.6.0",
+    "bonjour": "^3.5.0",
     "http-proxy": "^1.18.1",
+    "isbinaryfile": "^5.0.4",
     "jsonwebtoken": "^9.0.2",
     "koa": "^2.14.2",
     "koa-bodyparser": "^4.4.1",
     "koa-router": "^12.0.0",
     "koa-static": "^5.0.0",
+    "mdns-discovery": "^0.2.6",
+    "network-interfaces": "^1.1.0",
+    "node-nmap": "^4.0.0",
+    "ping": "^0.4.4",
     "ws": "^8.14.2"
   },
   "engines": {
