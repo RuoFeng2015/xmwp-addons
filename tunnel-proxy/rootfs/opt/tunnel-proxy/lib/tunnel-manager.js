@@ -323,11 +323,11 @@ class TunnelManager {
       ]
       : discoveredHosts;
 
-    // 只在实际发现新主机时显示日志，避免使用缓存时的重复日志
-    const isRecentDiscovery = this.lastDiscoveryTime && 
-      (Date.now() - this.lastDiscoveryTime) < 2000; // 发现后2秒内的连接尝试
-    
-    if (isRecentDiscovery) {
+    // 智能控制日志级别：缓存期间使用 DEBUG，新发现时使用 INFO
+    const usingCache = this.lastDiscoveryTime &&
+      (Date.now() - this.lastDiscoveryTime) >= 1000; // 发现1秒后认为在使用缓存
+
+    if (usingCache) {
       Logger.debug(`🔍 尝试连接 ${targetHosts.length} 个潜在的 Home Assistant 主机...`);
     } else {
       Logger.info(`🔍 尝试连接 ${targetHosts.length} 个潜在的 Home Assistant 主机...`);
@@ -584,11 +584,11 @@ class TunnelManager {
       ]
       : discoveredHosts;
 
-    // 只在实际发现新主机时显示日志，避免使用缓存时的重复日志
-    const isRecentDiscovery = this.lastDiscoveryTime && 
-      (Date.now() - this.lastDiscoveryTime) < 2000; // 发现后2秒内的连接尝试
-    
-    if (isRecentDiscovery) {
+    // 智能控制日志级别：缓存期间使用 DEBUG，新发现时使用 INFO
+    const usingCache = this.lastDiscoveryTime &&
+      (Date.now() - this.lastDiscoveryTime) >= 1000; // 发现1秒后认为在使用缓存
+
+    if (usingCache) {
       Logger.debug(`🔍 尝试 WebSocket 连接 ${targetHosts.length} 个潜在的 Home Assistant 主机...`);
     } else {
       Logger.info(`🔍 尝试 WebSocket 连接 ${targetHosts.length} 个潜在的 Home Assistant 主机...`);
