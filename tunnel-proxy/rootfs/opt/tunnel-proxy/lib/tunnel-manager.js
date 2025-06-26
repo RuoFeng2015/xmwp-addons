@@ -323,7 +323,15 @@ class TunnelManager {
       ]
       : discoveredHosts;
 
-    Logger.info(`🔍 尝试连接 ${targetHosts.length} 个潜在的 Home Assistant 主机...`);
+    // 只在实际发现新主机时显示日志，避免使用缓存时的重复日志
+    const isRecentDiscovery = this.lastDiscoveryTime && 
+      (Date.now() - this.lastDiscoveryTime) < 2000; // 发现后2秒内的连接尝试
+    
+    if (isRecentDiscovery) {
+      Logger.debug(`🔍 尝试连接 ${targetHosts.length} 个潜在的 Home Assistant 主机...`);
+    } else {
+      Logger.info(`🔍 尝试连接 ${targetHosts.length} 个潜在的 Home Assistant 主机...`);
+    }
 
     for (const hostname of targetHosts) {
       try {
@@ -362,7 +370,7 @@ class TunnelManager {
     if (this.lastDiscoveryTime &&
       (now - this.lastDiscoveryTime) < cacheTimeout &&
       this.discoveredHosts.length > 0) {
-      Logger.info('🔄 使用缓存的主机发现结果');
+      Logger.debug('🔄 使用缓存的主机发现结果');
       return this.discoveredHosts.map(h => h.host);
     }
 
@@ -576,7 +584,15 @@ class TunnelManager {
       ]
       : discoveredHosts;
 
-    Logger.info(`🔍 尝试 WebSocket 连接 ${targetHosts.length} 个潜在的 Home Assistant 主机...`);
+    // 只在实际发现新主机时显示日志，避免使用缓存时的重复日志
+    const isRecentDiscovery = this.lastDiscoveryTime && 
+      (Date.now() - this.lastDiscoveryTime) < 2000; // 发现后2秒内的连接尝试
+    
+    if (isRecentDiscovery) {
+      Logger.debug(`🔍 尝试 WebSocket 连接 ${targetHosts.length} 个潜在的 Home Assistant 主机...`);
+    } else {
+      Logger.info(`🔍 尝试 WebSocket 连接 ${targetHosts.length} 个潜在的 Home Assistant 主机...`);
+    }
 
     for (const hostname of targetHosts) {
       try {

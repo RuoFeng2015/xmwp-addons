@@ -43,7 +43,7 @@ class HANetworkDiscovery {
 
     try {
       // 第一步：优先尝试已知的最佳地址
-      Logger.info('🚀 优先尝试已知的 Home Assistant 地址...');
+      Logger.debug('🚀 优先尝试已知的 Home Assistant 地址...');
       const quickResult = await this.tryKnownHosts();
 
       if (quickResult && quickResult.length > 0) {
@@ -939,10 +939,10 @@ class HANetworkDiscovery {
     const results = [];
     const checkPromises = knownHosts.map(async (host) => {
       try {
-        Logger.info(`🔗 快速检测: ${host}:8123`);
+        Logger.debug(`🔗 快速检测: ${host}:8123`);
         const result = await this.checkHostForHA(host, 8123, 2000); // 2秒超时，更快
         if (result) {
-          Logger.info(`✅ 快速发现成功: ${host}:8123`);
+          Logger.debug(`✅ 快速发现成功: ${host}:8123`);
           return result;
         }
       } catch (error) {

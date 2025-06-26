@@ -5,7 +5,7 @@
   "local_ha_port": 8123,
   "username": "admin",
   "password": "password",
-  "client_id": "ha-client-001",
+  "client_id": "ha-client-test",
   "proxy_port": 9001,
   "log_level": "info"
 }
