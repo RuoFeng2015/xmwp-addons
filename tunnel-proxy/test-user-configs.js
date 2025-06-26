@@ -96,32 +96,32 @@ let allTestsPassed = true
 for (let i = 0; i < userScenarios.length; i++) {
   const scenario = userScenarios[i]
   const expected = expectedResults[i]
-  
+
   console.log(`\n📋 ${scenario.name}`)
   console.log('配置内容:', JSON.stringify(scenario.config, null, 2))
-  
+
   try {
     // 写入测试配置
     fs.writeFileSync(testConfigPath, JSON.stringify(scenario.config, null, 2))
-    
+
     // 清除模块缓存
     delete require.cache[require.resolve('./rootfs/opt/tunnel-proxy/lib/config')]
     delete require.cache[require.resolve('./rootfs/opt/tunnel-proxy/lib/logger')]
-    
+
     // 加载配置管理器
     const { ConfigManager } = require('./rootfs/opt/tunnel-proxy/lib/config')
-    
+
     // 加载和验证配置
     const config = ConfigManager.loadConfig()
     ConfigManager.validateConfig()
-    
+
     // 获取实际使用的服务器地址
     const actualHost = ConfigManager.getServerHost()
     const connectionInfo = ConfigManager.getConnectionInfo()
-    
+
     console.log('实际服务器地址:', actualHost)
     console.log('连接信息:', connectionInfo)
-    
+
     // 验证结果
     if (config.connection_type === expected.type && actualHost === expected.host) {
       console.log('✅ 测试通过')
@@ -131,7 +131,7 @@ for (let i = 0; i < userScenarios.length; i++) {
       console.log(`实际: ${config.connection_type} -> ${actualHost}`)
       allTestsPassed = false
     }
-    
+
   } catch (error) {
     console.error(`❌ ${scenario.name} 失败:`, error.message)
     allTestsPassed = false
@@ -168,22 +168,22 @@ const errorScenarios = [
 
 for (const scenario of errorScenarios) {
   console.log(`\n❌ ${scenario.name}`)
-  
+
   try {
     fs.writeFileSync(testConfigPath, JSON.stringify(scenario.config, null, 2))
-    
+
     // 清除模块缓存
     delete require.cache[require.resolve('./rootfs/opt/tunnel-proxy/lib/config')]
     delete require.cache[require.resolve('./rootfs/opt/tunnel-proxy/lib/logger')]
-    
+
     const { ConfigManager } = require('./rootfs/opt/tunnel-proxy/lib/config')
-    
+
     ConfigManager.loadConfig()
     ConfigManager.validateConfig()
-    
+
     console.log('❌ 应该报错但没有报错')
     allTestsPassed = false
-    
+
   } catch (error) {
     console.log('✅ 正确检测到配置错误:', error.message)
   }

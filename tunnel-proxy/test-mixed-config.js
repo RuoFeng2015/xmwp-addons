@@ -47,16 +47,16 @@ try {
   // 重新加载配置管理器（清除缓存）
   delete require.cache[require.resolve('./rootfs/opt/tunnel-proxy/lib/config')]
   const { ConfigManager } = require('./rootfs/opt/tunnel-proxy/lib/config')
-  
+
   const config = ConfigManager.loadConfig()
   ConfigManager.validateConfig()
-  
+
   const serverHost = ConfigManager.getServerHost()
   const connectionInfo = ConfigManager.getConnectionInfo()
-  
+
   console.log('实际使用的服务器地址:', serverHost)
   console.log('连接描述:', connectionInfo)
-  
+
   if (serverHost === testConfig1.server_domain && config.connection_type === 'domain') {
     console.log('✅ 正确使用域名连接')
   } else {
@@ -93,16 +93,16 @@ try {
   // 重新加载配置管理器（清除缓存）
   delete require.cache[require.resolve('./rootfs/opt/tunnel-proxy/lib/config')]
   const { ConfigManager } = require('./rootfs/opt/tunnel-proxy/lib/config')
-  
+
   const config = ConfigManager.loadConfig()
   ConfigManager.validateConfig()
-  
+
   const serverHost = ConfigManager.getServerHost()
   const connectionInfo = ConfigManager.getConnectionInfo()
-  
+
   console.log('实际使用的服务器地址:', serverHost)
   console.log('连接描述:', connectionInfo)
-  
+
   if (serverHost === testConfig2.server_host && config.connection_type === 'ip') {
     console.log('✅ 正确使用IP连接')
   } else {

@@ -42,32 +42,32 @@ console.log('✅ 测试配置文件已创建:', testConfigPath)
 try {
   // 加载配置管理器
   const { ConfigManager } = require('./rootfs/opt/tunnel-proxy/lib/config')
-  
+
   console.log('\n📥 加载配置...')
   const config = ConfigManager.loadConfig()
-  
+
   console.log('\n✅ 配置加载成功:')
   console.log(JSON.stringify(config, null, 2))
-  
+
   console.log('\n🔍 验证配置...')
   ConfigManager.validateConfig()
-  
+
   console.log('\n✅ 配置验证通过!')
-  
+
   const serverHost = ConfigManager.getServerHost()
   const connectionInfo = ConfigManager.getConnectionInfo()
-  
+
   console.log('\n📡 连接信息:')
   console.log('服务器地址:', serverHost)
   console.log('连接描述:', connectionInfo)
-  
+
   // 验证IP模式的关键点
   console.log('\n🎯 IP模式验证:')
   console.log('connection_type:', config.connection_type)
   console.log('server_host:', config.server_host)
   console.log('server_domain 是否存在:', config.server_domain ? '是' : '否')
   console.log('getServerHost() 返回:', serverHost)
-  
+
   if (config.connection_type === 'ip' && serverHost === config.server_host) {
     console.log('✅ IP模式配置正确!')
   } else {

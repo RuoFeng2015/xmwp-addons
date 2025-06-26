@@ -63,10 +63,10 @@ async function testErrorConfig(scenario) {
   return new Promise((resolve) => {
     console.log(`\n❌ ${scenario.name}`)
     console.log('配置:', JSON.stringify(scenario.config, null, 2))
-    
+
     // 写入错误配置
     fs.writeFileSync(testConfigPath, JSON.stringify(scenario.config, null, 2))
-    
+
     // 创建测试脚本
     const testScript = `
 const { ConfigManager } = require('./rootfs/opt/tunnel-proxy/lib/config')
@@ -81,21 +81,21 @@ try {
   process.exit(1)
 }
 `
-    
+
     const child = spawn('node', ['-e', testScript], {
       cwd: __dirname,
       stdio: 'pipe'
     })
-    
+
     let output = ''
     child.stdout.on('data', (data) => {
       output += data.toString()
     })
-    
+
     child.stderr.on('data', (data) => {
       output += data.toString()
     })
-    
+
     child.on('close', (code) => {
       // code 1 表示正确捕获了错误
       if (code === 1 && output.includes('SUCCESS')) {
@@ -112,14 +112,14 @@ try {
 
 async function runAllTests() {
   let allPassed = true
-  
+
   for (const scenario of errorScenarios) {
     const result = await testErrorConfig(scenario)
     if (!result) {
       allPassed = false
     }
   }
-  
+
   if (allPassed) {
     console.log('\n🎉 所有错误配置测试通过!')
     console.log('💡 配置验证正确拒绝了无效配置')
