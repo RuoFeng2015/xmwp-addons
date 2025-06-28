@@ -8,6 +8,8 @@ const { getConfig } = require('./config')
 class HttpProxyHandler {
   constructor(tunnelClient) {
     this.tunnelClient = tunnelClient
+    this.lastSuccessLogTime = new Map() // 记录每个主机上次成功连接日志的时间
+    this.logCooldownPeriod = 30000 // 30秒内不重复输出相同主机的成功连接日志
   }
 
   /**
@@ -29,7 +31,8 @@ class HttpProxyHandler {
         Logger.debug(`🔗 尝试连接: ${hostname}`)
         const success = await this.attemptHAConnection(message, hostname)
         if (success) {
-          Logger.info(`✅ 成功连接到 Home Assistant: ${hostname}`)
+          // 使用日志去重机制，避免短时间内重复输出相同主机的连接成功日志
+          this.logConnectionSuccess(hostname)
           return hostname
         }
       } catch (error) {
@@ -264,6 +267,23 @@ class HttpProxyHandler {
       content.includes('hass-frontend') ||
       content.includes('home-assistant-main') ||
       content.includes('frontend_latest')
+  }
+
+  /**
+   * 记录连接成功日志（带去重功能）
+   */
+  logConnectionSuccess(hostname) {
+    const now = Date.now()
+    const lastLogTime = this.lastSuccessLogTime.get(hostname)
+    
+    // 如果距离上次记录日志超过冷却期，或者是第一次连接此主机，则输出日志
+    if (!lastLogTime || (now - lastLogTime) > this.logCooldownPeriod) {
+      Logger.info(`✅ 成功连接到 Home Assistant: ${hostname}`)
+      this.lastSuccessLogTime.set(hostname, now)
+    } else {
+      // 在冷却期内，使用debug级别避免刷屏
+      Logger.debug(`✅ 连接成功 (已去重): ${hostname}`)
+    }
   }
 }
 

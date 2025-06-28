@@ -111,8 +111,9 @@ class HealthChecker {
 
       if (connectionOk) {
         const config = getConfig()
+        const lastSuccessfulHost = this.tunnelManager.hostDiscovery.getLastSuccessfulHost()
         Logger.info(
-          `✅ 本地Home Assistant连接正常 (最佳地址: ${this.tunnelManager.lastSuccessfulHost}:${config.local_ha_port})`
+          `✅ 本地Home Assistant连接正常 (最佳地址: ${lastSuccessfulHost || 'unknown'}:${config.local_ha_port})`
         )
       } else {
         Logger.warn(`⚠️  无法连接到本地Home Assistant`)
