@@ -133,6 +133,7 @@ class iOSWebSocketDebugLogger {
     if (errorMsg.includes('enotfound')) return 'DNS_ERROR'
     if (errorMsg.includes('certificate') || errorMsg.includes('ssl')) return 'SSL_ERROR'
     if (errorMsg.includes('starscream')) return 'STARSCREAM_ERROR'
+    if (errorMsg.includes('sec-websocket-extensions') || errorMsg.includes('extension')) return 'WEBSOCKET_EXTENSION_ERROR'
     if (errorMsg.includes('websocket')) return 'WEBSOCKET_PROTOCOL_ERROR'
     
     return 'GENERAL_ERROR'
@@ -162,6 +163,16 @@ class iOSWebSocketDebugLogger {
         '检查SSL证书配置',
         '确认HTTPS/WSS协议设置正确',
         '验证证书链完整性'
+      ],
+      'WEBSOCKET_EXTENSION_ERROR': [
+        '禁用WebSocket扩展协商（permessage-deflate等）',
+        '确保客户端和服务器扩展协商一致',
+        '移除Sec-WebSocket-Extensions头以使用基本WebSocket'
+      ],
+      'WEBSOCKET_PROTOCOL_ERROR': [
+        '检查WebSocket协议版本兼容性',
+        '确认Upgrade和Connection头正确设置',
+        '验证Sec-WebSocket-Accept计算是否正确'
       ]
     }
 

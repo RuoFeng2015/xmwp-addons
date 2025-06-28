@@ -44,6 +44,20 @@ class WebSocketHandler {
         }
       } catch (error) {
         Logger.debug(`❌ WebSocket 连接失败 ${hostname}: ${error.message}`)
+        
+        // 如果是扩展相关错误，尝试iOS兼容模式
+        if (error.message.includes('extension') || error.message.includes('Sec-WebSocket-Extensions')) {
+          Logger.info(`🔄 尝试iOS兼容模式连接: ${hostname}`)
+          try {
+            const iOSSuccess = await this.attemptWebSocketConnectionWithiOSFallback(message, hostname)
+            if (iOSSuccess) {
+              Logger.info(`✅ iOS兼容模式WebSocket连接成功: ${hostname}:${getConfig().local_ha_port}`)
+              return hostname
+            }
+          } catch (iOSError) {
+            Logger.debug(`❌ iOS兼容模式也失败: ${iOSError.message}`)
+          }
+        }
         continue
       }
     }
@@ -220,6 +234,14 @@ class WebSocketHandler {
         Logger.info(`🔧 [iOS Fix] 添加缺失的Origin头: ${headers['origin']}`)
       }
       
+      // 处理WebSocket扩展问题 - 如果客户端请求了扩展但服务器不支持，或反之
+      if (headers['sec-websocket-extensions']) {
+        Logger.info(`🔧 [iOS Fix] 原始扩展头: ${headers['sec-websocket-extensions']}`)
+        // 移除可能导致问题的扩展头，让服务器决定
+        delete headers['sec-websocket-extensions']
+        Logger.info(`🔧 [iOS Fix] 已删除扩展头以避免协商问题`)
+      }
+      
       // 清理不需要的头信息
       delete headers['connection']
       delete headers['upgrade']
@@ -236,6 +258,8 @@ class WebSocketHandler {
         handshakeTimeout: 8000, // 握手超时8秒
         perMessageDeflate: false, // 禁用压缩，提高iOS兼容性
         skipUTF8Validation: false, // 确保UTF8验证
+        extensions: [], // 明确禁用所有WebSocket扩展
+        maxPayload: 100 * 1024 * 1024, // 设置最大负载大小
       })
 
       let authenticationState = {
@@ -486,40 +510,121 @@ class WebSocketHandler {
       const protocol = config.local_ha_port === 443 ? 'wss' : 'ws'
       const wsUrl = `${protocol}://${hostname}:${config.local_ha_port}${message.url}`
 
-      // iOS Starscream优化的连接头
-      const headers = { ...message.headers }
-      headers['host'] = `${hostname}:${config.local_ha_port}`
-      headers['user-agent'] = 'Starscream/iOS'
-      headers['sec-websocket-version'] = '13'
+      // iOS Starscream优化的连接头 - 移除所有可能导致问题的扩展
+      const headers = {}
       
-      delete headers['connection']
-      delete headers['upgrade']
+      // 只保留最基础的WebSocket头信息
+      headers['host'] = `${hostname}:${config.local_ha_port}`
+      headers['sec-websocket-key'] = message.headers['sec-websocket-key']
+      headers['sec-websocket-version'] = '13'
+      headers['origin'] = message.headers['origin'] || `${protocol}://${hostname}:${config.local_ha_port}`
+      headers['user-agent'] = message.headers['user-agent'] || 'iOS-Compatible-WebSocket/1.0'
+      
+      // 明确不包含任何扩展头
+      Logger.info(`🔧 [iOS兼容模式] 使用最小化头信息集:`)
+      Object.entries(headers).forEach(([key, value]) => {
+        Logger.info(`   ${key}: ${value}`)
+      })
 
-      // iOS优化的WebSocket配置
+      // iOS优化的WebSocket配置 - 最大兼容性
       const ws = new WebSocket(wsUrl, {
         headers: headers,
         timeout: 15000,
         handshakeTimeout: 12000,
-        perMessageDeflate: false,
+        perMessageDeflate: false, // 禁用压缩
         skipUTF8Validation: false,
         protocolVersion: 13,
         followRedirects: false,
+        extensions: [], // 完全禁用扩展
+        maxPayload: 10 * 1024 * 1024, // 10MB限制
       })
 
       let resolved = false
       
+      const connectionTimeout = setTimeout(() => {
+        if (!resolved) {
+          resolved = true
+          Logger.error(`⏰ iOS兼容模式WebSocket连接超时: ${hostname}:${config.local_ha_port}`)
+          try {
+            ws.terminate()
+          } catch (e) {
+            // 忽略终止错误
+          }
+          reject(new Error('iOS compatible WebSocket connection timeout'))
+        }
+      }, 18000)
+      
       ws.on('open', () => {
         if (resolved) return
         resolved = true
+        clearTimeout(connectionTimeout)
         
-        Logger.info(`✅ iOS WebSocket连接建立成功: ${hostname}:${config.local_ha_port}`)
+        Logger.info(`✅ iOS兼容模式WebSocket连接建立成功: ${hostname}:${config.local_ha_port}`)
+
+        this.wsConnections.set(message.upgrade_id, {
+          socket: ws,
+          hostname: hostname,
+          timestamp: Date.now(),
+          isIOSCompatMode: true, // 标记为iOS兼容模式
+        })
+
+        // iOS特化的WebSocket握手响应
+        const websocketKey = message.headers['sec-websocket-key']
+        const websocketAccept = crypto
+          .createHash('sha1')
+          .update(websocketKey + '258EAFA5-E914-47DA-95CA-C5AB0DC85B11')
+          .digest('base64')
+
+        const responseHeaders = {
+          'Upgrade': 'websocket',
+          'Connection': 'Upgrade',
+          'Sec-WebSocket-Accept': websocketAccept,
+          'Sec-WebSocket-Version': '13',
+          'Cache-Control': 'no-cache, no-store, must-revalidate',
+          'Pragma': 'no-cache',
+          'Expires': '0',
+          'X-iOS-Compatible': 'true',
+          'X-Extensions-Disabled': 'true'
+        }
+
+        const response = {
+          type: 'websocket_upgrade_response',
+          upgrade_id: message.upgrade_id,
+          status_code: 101,
+          headers: responseHeaders,
+        }
+        
+        this.tunnelClient.send(response)
+        Logger.info(`📤 发送iOS兼容模式WebSocket升级响应: ${message.upgrade_id}`)
+
+        // iOS消息处理
+        ws.on('message', (data) => {
+          const response = {
+            type: 'websocket_data',
+            upgrade_id: message.upgrade_id,
+            data: data.toString('base64'),
+          }
+          this.tunnelClient.send(response)
+        })
+
         resolve(true)
       })
 
       ws.on('error', (error) => {
+        Logger.error(`🔴 iOS兼容模式WebSocket连接错误: ${hostname}:${config.local_ha_port} - ${error.message}`)
         if (resolved) return
         resolved = true
+        clearTimeout(connectionTimeout)
         reject(error)
+      })
+
+      ws.on('close', (code, reason) => {
+        Logger.info(`🔴 iOS兼容模式WebSocket连接关闭: ${hostname}, 代码: ${code}, 原因: ${reason || '无'}`)
+        if (resolved) {
+          setTimeout(() => {
+            this.sendCloseNotification(message.upgrade_id)
+          }, 100)
+        }
       })
     })
   }
