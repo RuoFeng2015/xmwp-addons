@@ -17,6 +17,8 @@ let config = {}
 class ConfigManager {
   static loadConfig() {
     try {
+      Logger.info(`尝试加载配置文件: ${CONFIG_PATH}`)
+      
       if (!fs.existsSync(CONFIG_PATH)) {
         if (process.env.NODE_ENV === 'development') {
           Logger.warn('开发环境：配置文件不存在，使用默认配置')
@@ -30,13 +32,17 @@ class ConfigManager {
       }
 
       const configData = fs.readFileSync(CONFIG_PATH, 'utf8')
+      Logger.info(`原始配置数据: ${configData}`)
+      
       config = JSON.parse(configData)
       Logger.info('配置文件加载成功')
-      console.log('')
-      console.log("%c Line:36 🥓 config", "color:#b03734", config);
+      Logger.info(`已加载配置: ${JSON.stringify(config, null, 2)}`)
+      
       return config
     } catch (error) {
       Logger.error(`配置文件加载失败: ${error.message}`)
+      Logger.error(`配置文件路径: ${CONFIG_PATH}`)
+      
       if (process.env.NODE_ENV === 'development') {
         Logger.info('开发环境：使用默认配置继续运行')
         config = this.getDefaultConfig()
@@ -47,8 +53,8 @@ class ConfigManager {
   }
   static getDefaultConfig() {
     return {
-      connection_type: 'ip',
-      server_host: 'localhost',
+      connection_type: 'domain',
+      server_host: '',
       server_domain: 'tunnel.wzzhk.club',
       server_port: 3080,
       local_ha_port: 8123,
@@ -56,10 +62,19 @@ class ConfigManager {
       password: 'password',
       client_id: 'ha-client-001',
       proxy_port: 9001,
-      log_level: 'debug',
+      log_level: 'info',
     }
   }
   static validateConfig() {
+    // 首先检查配置是否已加载
+    if (!config || Object.keys(config).length === 0) {
+      Logger.error('配置未加载或为空，尝试重新加载...')
+      this.loadConfig()
+    }
+    
+    Logger.info('开始验证配置...')
+    console.log('%c 当前配置:', 'color:#e6a23c', config)
+    
     const required = [
       'server_port',
       'username',
@@ -74,7 +89,12 @@ class ConfigManager {
     }
 
     // 验证连接方式和对应的服务器地址
-    config.connection_type = config.connection_type || 'ip'
+    if (!config.connection_type) {
+      Logger.warn('connection_type 未设置，使用默认值 "domain"')
+      config.connection_type = 'domain'
+    }
+
+    Logger.info(`验证连接类型: ${config.connection_type}`)
 
     if (config.connection_type === 'ip') {
       if (!config.server_host) {
@@ -87,7 +107,7 @@ class ConfigManager {
         process.exit(1)
       }
     } else {
-      Logger.error('connection_type 必须是 "ip" 或 "domain"')
+      Logger.error(`无效的连接类型: ${config.connection_type} (必须是 'ip' 或 'domain')`)
       process.exit(1)
     }
 
@@ -96,6 +116,7 @@ class ConfigManager {
     config.log_level = config.log_level || 'info'
 
     Logger.info('配置验证通过')
+    Logger.info(`最终配置: ${JSON.stringify(config, null, 2)}`)
   }
 
   static getConfig() {
