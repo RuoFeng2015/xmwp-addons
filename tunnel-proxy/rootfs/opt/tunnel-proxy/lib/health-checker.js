@@ -22,7 +22,7 @@ class HealthChecker {
       status: 'ok',
       timestamp: Date.now(),
       uptime: process.uptime(),
-      version: '1.6.6',
+      version: '1.6.7',
       memory: process.memoryUsage(),
       tunnel: tunnelStatus ? {
         connected: tunnelStatus.connected,

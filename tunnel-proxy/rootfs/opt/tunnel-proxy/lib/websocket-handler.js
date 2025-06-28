@@ -20,21 +20,10 @@ class WebSocketHandler {
   async handleWebSocketUpgrade(message, getTargetHosts, lastSuccessfulHost) {
     Logger.info(`🔄 处理WebSocket升级请求: ${message.upgrade_id} ${message.url}`)
 
-    // iOS兼容性检查
-    if (!this.validateiOSWebSocketRequest(message)) {
-      const errorResponse = {
-        type: 'websocket_upgrade_response',
-        upgrade_id: message.upgrade_id,
-        status_code: 400,
-        headers: {
-          'Connection': 'close',
-          'Content-Type': 'text/plain',
-          'X-Error-Code': 'INVALID_WEBSOCKET_REQUEST'
-        },
-        error: 'Invalid WebSocket request headers'
-      }
-      this.tunnelClient.send(errorResponse)
-      return null
+    // iOS兼容性检查（现在只记录，不阻断连接）
+    const isValidiOSRequest = this.validateiOSWebSocketRequest(message)
+    if (!isValidiOSRequest) {
+      Logger.warn(`⚠️ WebSocket请求可能存在iOS兼容性问题，但仍将尝试连接: ${message.upgrade_id}`)
     }
 
     // 智能获取目标主机列表
@@ -205,10 +194,40 @@ class WebSocketHandler {
         message.headers['user-agent']
       )
 
+      // 优化头信息处理以支持iOS
       const headers = { ...message.headers }
       headers['host'] = `${hostname}:${config.local_ha_port}`
+      
+      // 确保关键的WebSocket头信息存在
+      if (!headers['connection']) {
+        headers['connection'] = 'Upgrade'
+        Logger.info(`🔧 [iOS Fix] 添加缺失的Connection头: Upgrade`)
+      }
+      
+      if (!headers['upgrade']) {
+        headers['upgrade'] = 'websocket'
+        Logger.info(`🔧 [iOS Fix] 添加缺失的Upgrade头: websocket`)
+      }
+      
+      if (!headers['sec-websocket-version']) {
+        headers['sec-websocket-version'] = '13'
+        Logger.info(`🔧 [iOS Fix] 添加缺失的Sec-WebSocket-Version头: 13`)
+      }
+      
+      // 确保有Origin头（iOS需要）
+      if (!headers['origin']) {
+        headers['origin'] = `${protocol}://${hostname}:${config.local_ha_port}`
+        Logger.info(`🔧 [iOS Fix] 添加缺失的Origin头: ${headers['origin']}`)
+      }
+      
+      // 清理不需要的头信息
       delete headers['connection']
       delete headers['upgrade']
+
+      Logger.info(`🔍 [WebSocket] 最终连接头信息:`)
+      Object.entries(headers).forEach(([key, value]) => {
+        Logger.info(`   ${key}: ${value}`)
+      })
 
       // 增加超时时间，减少iOS连接失败
       const ws = new WebSocket(wsUrl, {
@@ -637,28 +656,45 @@ class WebSocketHandler {
    */
   validateiOSWebSocketRequest(message) {
     const issues = []
+    const headers = message.headers || {}
     
-    // 检查必要的WebSocket头
-    if (!message.headers['sec-websocket-key']) {
+    // 先记录所有收到的头信息用于调试
+    Logger.info(`🔍 [iOS Debug] 收到的WebSocket头信息: ${message.upgrade_id}`)
+    Object.entries(headers).forEach(([key, value]) => {
+      Logger.info(`   ${key}: ${value}`)
+    })
+    
+    // 检查必要的WebSocket头（必须有）
+    if (!headers['sec-websocket-key']) {
       issues.push('Missing Sec-WebSocket-Key header')
     }
     
-    if (!message.headers['sec-websocket-version']) {
-      issues.push('Missing Sec-WebSocket-Version header')
-    } else if (message.headers['sec-websocket-version'] !== '13') {
-      issues.push(`Unsupported WebSocket version: ${message.headers['sec-websocket-version']}`)
+    // WebSocket版本检查（可选，如果存在则必须是13）
+    if (headers['sec-websocket-version'] && headers['sec-websocket-version'] !== '13') {
+      issues.push(`Unsupported WebSocket version: ${headers['sec-websocket-version']}`)
     }
     
-    if (!message.headers['upgrade'] || message.headers['upgrade'].toLowerCase() !== 'websocket') {
+    // Upgrade头检查（必须有且为websocket）
+    if (!headers['upgrade'] || headers['upgrade'].toLowerCase() !== 'websocket') {
       issues.push('Invalid or missing Upgrade header')
     }
     
-    if (!message.headers['connection'] || !message.headers['connection'].toLowerCase().includes('upgrade')) {
-      issues.push('Invalid or missing Connection header')
+    // Connection头检查（更宽松的检查）
+    const connectionHeader = headers['connection']
+    if (connectionHeader) {
+      const connectionLower = connectionHeader.toLowerCase()
+      // 检查是否包含upgrade（可能是"Upgrade"或"keep-alive, Upgrade"等）
+      if (!connectionLower.includes('upgrade')) {
+        issues.push(`Invalid Connection header: ${connectionHeader} (should contain 'upgrade')`)
+      }
+    } else {
+      // Connection头缺失，这可能是代理处理时被删除了，我们给一个警告但不拒绝
+      Logger.warn(`⚠️ Missing Connection header for WebSocket request: ${message.upgrade_id}`)
+      Logger.warn(`⚠️ This might be normal if the proxy server removes this header`)
     }
     
-    // 检查Origin头（iOS Safari需要）
-    if (!message.headers['origin'] && !message.headers['sec-websocket-origin']) {
+    // 检查Origin头（iOS Safari推荐但不强制）
+    if (!headers['origin'] && !headers['sec-websocket-origin']) {
       Logger.info(`⚠️ WebSocket请求缺少Origin头，可能影响iOS兼容性: ${message.upgrade_id}`)
     }
     

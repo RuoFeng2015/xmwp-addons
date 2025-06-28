@@ -75,7 +75,7 @@ class HttpProxyHandler {
       // delete options.headers['accept-encoding']
 
       if (!options.headers['user-agent']) {
-        options.headers['user-agent'] = 'HomeAssistant-Tunnel-Proxy/1.6.6'
+        options.headers['user-agent'] = 'HomeAssistant-Tunnel-Proxy/1.6.7'
       }
 
       const proxyReq = http.request(options, (proxyRes) => {
@@ -215,7 +215,7 @@ class HttpProxyHandler {
                 <li><strong>请求URL:</strong> <span class="code">${message.url}</span></li>
                 <li><strong>请求方法:</strong> <span class="code">${message.method}</span></li>
                 <li><strong>时间戳:</strong> <span class="code">${new Date().toISOString()}</span></li>
-                <li><strong>插件版本:</strong> <span class="code">1.6.6</span></li>
+                <li><strong>插件版本:</strong> <span class="code">1.6.7</span></li>
               </ul>
             </div>
           </div>
@@ -240,7 +240,7 @@ class HttpProxyHandler {
         family: 4,
         headers: {
           host: `${hostname}:${config.local_ha_port}`,
-          'user-agent': 'HomeAssistant-Tunnel-Proxy/1.6.6',
+          'user-agent': 'HomeAssistant-Tunnel-Proxy/1.6.7',
         },
       }
 
