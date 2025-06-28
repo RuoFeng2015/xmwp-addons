@@ -80,6 +80,8 @@ class WebSocketHandler {
     try {
       // 将 base64 解码为 Buffer
       const binaryData = Buffer.from(data, 'base64')
+      
+      Logger.info(`📥 [WebSocket] 收到来自客户端的数据: ${upgrade_id}, 长度: ${binaryData.length}`)
 
       // 使用异步方法判断是否为二进制消息
       const isBinaryMessage = await this.isBinaryWebSocketMessageAsync(binaryData)
@@ -97,9 +99,27 @@ class WebSocketHandler {
           // 尝试解析JSON以获取更多信息
           try {
             const jsonMessage = JSON.parse(stringData)
+            Logger.info(`🔍 [iOS监控] 收到JSON消息: ${upgrade_id}, 类型: ${jsonMessage.type || '未知'}`)
+            
+            // 特别关注认证相关消息 - 这是关键！
+            if (jsonMessage.type === 'auth') {
+              Logger.info(`🔐 [认证监控] *** 收到来自iOS的认证消息! ***`)
+              Logger.info(`🔐 [认证监控] 连接ID: ${upgrade_id}`)
+              Logger.info(`🔐 [认证监控] 消息完整内容: ${JSON.stringify(jsonMessage, null, 2)}`)
+              Logger.info(`🔐 [认证监控] 现在将立即转发到HA...`)
+            } else if (jsonMessage.type) {
+              Logger.info(`📨 [消息监控] 收到${jsonMessage.type}类型消息: ${upgrade_id}`)
+            }
+            
             Logger.info(`✅ WebSocket JSON数据已发送到HA: ${upgrade_id}, 类型: ${jsonMessage.type}`)
           } catch (jsonError) {
             Logger.info(`📄 WebSocket文本数据已发送到HA: ${upgrade_id}, 长度: ${stringData.length}`)
+            Logger.info(`📄 内容预览: ${stringData.substring(0, 100)}...`)
+            
+            // 检查是否可能是iOS发送的认证数据但格式不同
+            if (stringData.includes('auth') || stringData.includes('token') || stringData.includes('access_token')) {
+              Logger.warn(`🔍 [认证监控] 可能包含认证信息的非JSON数据: ${stringData}`)
+            }
           }
 
           // 发送文本数据
@@ -112,6 +132,7 @@ class WebSocketHandler {
       }
     } catch (error) {
       Logger.error(`WebSocket数据转发失败: ${error.message}`)
+      Logger.error(`🔍 [错误监控] 连接ID: ${upgrade_id}, 数据长度: ${data ? data.length : 0}`)
     }
   }
 
@@ -317,6 +338,7 @@ class WebSocketHandler {
           socket: ws,
           hostname: hostname,
           timestamp: Date.now(),
+          userAgent: message.headers['user-agent']
         })
 
         // 修复 WebSocket 握手响应头，确保完全符合 RFC 6455 标准
@@ -327,34 +349,8 @@ class WebSocketHandler {
           return
         }
 
-        const websocketAccept = crypto
-          .createHash('sha1')
-          .update(websocketKey + '258EAFA5-E914-47DA-95CA-C5AB0DC85B11')
-          .digest('base64')
-
-        // 构建完整的 WebSocket 升级响应头，严格按照RFC 6455标准和iOS Starscream兼容性
-        const responseHeaders = {
-          'Upgrade': 'websocket',  // 必须是小写 'websocket'
-          'Connection': 'Upgrade', // 必须包含 'Upgrade'
-          'Sec-WebSocket-Accept': websocketAccept, // 计算的accept值
-          'Sec-WebSocket-Version': '13' // 明确指定WebSocket版本
-        }
-
-        // 检查并添加其他可能需要的 WebSocket 头信息
-        if (message.headers['sec-websocket-protocol']) {
-          // 处理子协议协商（如果需要）
-          const protocols = message.headers['sec-websocket-protocol'].split(',').map(p => p.trim())
-          // 选择第一个支持的协议（简化处理）
-          responseHeaders['Sec-WebSocket-Protocol'] = protocols[0]
-          Logger.info(`🔧 WebSocket子协议协商: ${protocols[0]}`)
-        }
-
-        // 添加iOS Starscream兼容性头信息
-        responseHeaders['Cache-Control'] = 'no-cache, no-store, must-revalidate'
-        responseHeaders['Pragma'] = 'no-cache'
-        responseHeaders['Expires'] = '0'
-        responseHeaders['X-Content-Type-Options'] = 'nosniff'
-        responseHeaders['X-Frame-Options'] = 'DENY'
+        // 使用严格的iOS兼容响应头生成
+        const { headers: responseHeaders, accept: websocketAccept } = this.createStrictWebSocketResponse(message)
 
         const response = {
           type: 'websocket_upgrade_response',
@@ -367,6 +363,10 @@ class WebSocketHandler {
         Logger.info(`📤 发送WebSocket升级响应: ${message.upgrade_id}, 状态: 101, Accept: ${websocketAccept}`)
         Logger.debug(`🔧 响应头: ${JSON.stringify(responseHeaders, null, 2)}`)
 
+        // 为iOS添加连接稳定性监控
+        this.setupiOSConnectionMonitoring(ws, message.upgrade_id)
+
+        // 添加iOS专用的连接监控
         ws.on('message', (data) => {
           Logger.info(`📥 WebSocket收到HA消息: ${message.upgrade_id}, 长度: ${data.length}, 内容: ${data.toString()}`)
 
@@ -411,8 +411,26 @@ class WebSocketHandler {
               Logger.info(`📤 已转发WebSocket消息: ${message.upgrade_id}`)
             }
           } catch (error) {
-            Logger.error(`❌ WebSocket消息转发失败: ${error.message}`)
-            Logger.error(error.stack)
+            Logger.error(`转发WebSocket消息失败: ${error.message}`)
+          }
+        })
+
+        // 添加专门的iOS错误诊断
+        ws.on('error', (error) => {
+          Logger.error(`WebSocket错误: ${error.message}`)
+          Logger.error(`🍎 [iOS Debug] WebSocket连接错误详情:`)
+          Logger.error(`   ID: ${message.upgrade_id}`)
+          Logger.error(`   错误: ${error.message}`)
+          Logger.error(`   Client: ${message.headers['user-agent']}`)
+          
+          // 检查是否是iOS客户端
+          const userAgent = message.headers['user-agent'] || ''
+          if (userAgent.includes('Home Assistant') && userAgent.includes('iOS')) {
+            Logger.error(`🍎 [iOS特定错误] 可能的原因:`)
+            Logger.error(`   1. WebSocket响应头不兼容`)
+            Logger.error(`   2. 子协议协商失败`)
+            Logger.error(`   3. 扩展协商问题`)
+            Logger.error(`   4. 证书或TLS问题`)
           }
         })
 
@@ -811,6 +829,149 @@ class WebSocketHandler {
     
     Logger.info(`✅ WebSocket请求通过iOS兼容性检查: ${message.upgrade_id}`)
     return true
+  }
+
+  /**
+   * 创建iOS兼容的WebSocket响应头
+   * 严格按照RFC 6455和iOS Starscream的期望
+   */
+  createiOSCompatibleHeaders(message) {
+    const websocketKey = message.headers['sec-websocket-key']
+    if (!websocketKey) {
+      throw new Error('Missing Sec-WebSocket-Key header')
+    }
+
+    // 计算WebSocket Accept key
+    const websocketAccept = crypto
+      .createHash('sha1')
+      .update(websocketKey + '258EAFA5-E914-47DA-95CA-C5AB0DC85B11')
+      .digest('base64')
+
+    // 构建最小化的、严格符合标准的响应头
+    const responseHeaders = {
+      'Upgrade': 'websocket',
+      'Connection': 'Upgrade', 
+      'Sec-WebSocket-Accept': websocketAccept
+    }
+
+    // 记录iOS调试信息
+    Logger.info(`🔧 [iOS Fix] 生成WebSocket响应头:`)
+    Logger.info(`   Sec-WebSocket-Key: ${websocketKey}`)
+    Logger.info(`   Sec-WebSocket-Accept: ${websocketAccept}`)
+    
+    // 检查子协议请求
+    const requestedProtocols = message.headers['sec-websocket-protocol']
+    if (requestedProtocols) {
+      Logger.info(`🔧 [iOS Fix] 客户端请求子协议: ${requestedProtocols}`)
+      Logger.info(`🔧 [iOS Fix] 不设置子协议响应，保持与HA服务器一致`)
+    }
+
+    // 检查扩展请求
+    const requestedExtensions = message.headers['sec-websocket-extensions'] 
+    if (requestedExtensions) {
+      Logger.info(`🔧 [iOS Fix] 客户端请求扩展: ${requestedExtensions}`)
+      Logger.info(`🔧 [iOS Fix] 不设置扩展响应，避免协商问题`)
+    }
+
+    return { responseHeaders, websocketAccept }
+  }
+
+  /**
+   * 创建严格的WebSocket响应以确保iOS兼容性
+   */
+  createStrictWebSocketResponse(message) {
+    Logger.info(`🔧 [iOS修复] 创建严格的WebSocket响应`)
+    
+    // 重新计算Accept key以确保正确性
+    const key = message.headers['sec-websocket-key']
+    const magicString = '258EAFA5-E914-47DA-95CA-C5AB0DC85B11'
+    const sha1Hash = crypto.createHash('sha1')
+    sha1Hash.update(key + magicString)
+    const accept = sha1Hash.digest('base64')
+    
+    Logger.info(`🔧 [iOS修复] WebSocket密钥交换:`)
+    Logger.info(`   Client Key: ${key}`)
+    Logger.info(`   Accept Key: ${accept}`)
+    
+    // 创建最小但完整的WebSocket响应头
+    const headers = {}
+    headers['Upgrade'] = 'websocket'  // 严格按照RFC大小写
+    headers['Connection'] = 'Upgrade'
+    headers['Sec-WebSocket-Accept'] = accept
+    
+    // 重要：检查并严格处理扩展和协议
+    const extensions = message.headers['sec-websocket-extensions']
+    const protocols = message.headers['sec-websocket-protocol']
+    
+    if (extensions) {
+      Logger.info(`🔧 [iOS修复] 客户端请求扩展: ${extensions}`)
+      Logger.info(`🔧 [iOS修复] 不回复扩展以避免协商失败`)
+      // 不设置 Sec-WebSocket-Extensions 响应头
+    }
+    
+    if (protocols) {
+      Logger.info(`🔧 [iOS修复] 客户端请求协议: ${protocols}`)
+      Logger.info(`🔧 [iOS修复] 不回复协议以匹配HA行为`)
+      // 不设置 Sec-WebSocket-Protocol 响应头
+    }
+    
+    Logger.info(`🔧 [iOS修复] 最终响应头:`)
+    Object.entries(headers).forEach(([k, v]) => {
+      Logger.info(`   ${k}: ${v}`)
+    })
+    
+    return { headers, accept }
+  }
+
+  /**
+   * 设置iOS WebSocket连接监控
+   */
+  setupiOSConnectionMonitoring(ws, upgradeId) {
+    Logger.info(`🍎 [iOS监控] 设置连接监控: ${upgradeId}`)
+    
+    // 监控连接状态
+    let connectionAlive = true
+    let pingInterval = null
+    
+    // 检查用户代理是否为iOS
+    const wsConnection = this.wsConnections.get(upgradeId)
+    if (wsConnection && wsConnection.userAgent && wsConnection.userAgent.includes('iOS')) {
+      Logger.info(`🍎 [iOS监控] 检测到iOS客户端，启用特殊监控`)
+      
+      // iOS WebSocket心跳检测
+      pingInterval = setInterval(() => {
+        if (connectionAlive && ws.readyState === ws.OPEN) {
+          Logger.info(`🍎 [iOS心跳] 发送心跳检测: ${upgradeId}`)
+          try {
+            ws.ping()
+            connectionAlive = false
+            
+            // 如果3秒内没有pong响应，认为连接有问题
+            setTimeout(() => {
+              if (!connectionAlive) {
+                Logger.warn(`🍎 [iOS心跳] 心跳超时，连接可能有问题: ${upgradeId}`)
+              }
+            }, 3000)
+          } catch (error) {
+            Logger.error(`🍎 [iOS心跳] 心跳发送失败: ${error.message}`)
+          }
+        }
+      }, 30000) // 每30秒一次心跳
+    }
+    
+    // 监听pong响应
+    ws.on('pong', () => {
+      connectionAlive = true
+      Logger.info(`🍎 [iOS心跳] 收到pong响应: ${upgradeId}`)
+    })
+    
+    // 连接关闭时清理
+    ws.on('close', () => {
+      if (pingInterval) {
+        clearInterval(pingInterval)
+        Logger.info(`🍎 [iOS监控] 清理连接监控: ${upgradeId}`)
+      }
+    })
   }
 }
 
