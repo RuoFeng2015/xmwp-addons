@@ -46,7 +46,7 @@ class HttpProxyHandler {
   }
 
   /**
-   * 尝试HA连接
+   * 尝试HA连接 - 确保100%还原原始HTTP请求
    */
   attemptHAConnection(message, hostname) {
     return new Promise((resolve, reject) => {
@@ -61,14 +61,21 @@ class HttpProxyHandler {
         timeout: 5000,
       }
 
-      options.headers['host'] = `${hostname}:${config.local_ha_port}`
-      delete options.headers['connection']
-      delete options.headers['content-length']
-      delete options.headers['transfer-encoding']
-      delete options.headers['accept-encoding']
+      // 重要：保持原始Host头，确保虚拟主机正确路由
+      if (message.headers.host) {
+        options.headers['host'] = message.headers.host
+      } else {
+        options.headers['host'] = `${hostname}:${config.local_ha_port}`
+      }
+
+      // 不删除这些重要的头信息，它们对OAuth认证至关重要
+      // delete options.headers['connection']
+      // delete options.headers['content-length'] 
+      // delete options.headers['transfer-encoding']
+      // delete options.headers['accept-encoding']
 
       if (!options.headers['user-agent']) {
-        options.headers['user-agent'] = 'HomeAssistant-Tunnel-Proxy/1.0.8'
+        options.headers['user-agent'] = 'HomeAssistant-Tunnel-Proxy/1.6.4'
       }
 
       const proxyReq = http.request(options, (proxyRes) => {
@@ -99,8 +106,29 @@ class HttpProxyHandler {
         reject(new Error('连接超时'))
       })
 
+      // 处理请求体 - 支持base64编码的原始数据
       if (message.body) {
-        proxyReq.write(message.body)
+        try {
+          // 如果是base64编码的数据，先解码
+          let bodyData
+          if (typeof message.body === 'string' && message.body.match(/^[A-Za-z0-9+/]+=*$/)) {
+            // 看起来像base64，尝试解码
+            try {
+              bodyData = Buffer.from(message.body, 'base64')
+            } catch (e) {
+              // 解码失败，当作普通字符串处理
+              bodyData = message.body
+            }
+          } else {
+            bodyData = message.body
+          }
+          
+          proxyReq.write(bodyData)
+        } catch (error) {
+          Logger.debug(`写入请求体失败: ${error.message}`)
+          // 如果写入失败，尝试直接写入原始数据
+          proxyReq.write(message.body)
+        }
       }
 
       proxyReq.end()
