@@ -3,6 +3,7 @@ const crypto = require('crypto')
 const { isBinaryFile } = require('isbinaryfile')
 const Logger = require('./logger')
 const { getConfig } = require('./config')
+const iOSDebugLogger = require('./ios-websocket-debug')
 
 /**
  * WebSocket 连接处理器
@@ -18,6 +19,23 @@ class WebSocketHandler {
    */
   async handleWebSocketUpgrade(message, getTargetHosts, lastSuccessfulHost) {
     Logger.info(`🔄 处理WebSocket升级请求: ${message.upgrade_id} ${message.url}`)
+
+    // iOS兼容性检查
+    if (!this.validateiOSWebSocketRequest(message)) {
+      const errorResponse = {
+        type: 'websocket_upgrade_response',
+        upgrade_id: message.upgrade_id,
+        status_code: 400,
+        headers: {
+          'Connection': 'close',
+          'Content-Type': 'text/plain',
+          'X-Error-Code': 'INVALID_WEBSOCKET_REQUEST'
+        },
+        error: 'Invalid WebSocket request headers'
+      }
+      this.tunnelClient.send(errorResponse)
+      return null
+    }
 
     // 智能获取目标主机列表
     const discoveredHosts = await getTargetHosts()
@@ -179,14 +197,26 @@ class WebSocketHandler {
       const protocol = config.local_ha_port === 443 ? 'wss' : 'ws'
       const wsUrl = `${protocol}://${hostname}:${config.local_ha_port}${message.url}`
 
+      // 记录连接尝试用于iOS调试
+      const debugAttempt = iOSDebugLogger.logConnectionAttempt(
+        message.upgrade_id, 
+        hostname, 
+        message.headers,
+        message.headers['user-agent']
+      )
+
       const headers = { ...message.headers }
       headers['host'] = `${hostname}:${config.local_ha_port}`
       delete headers['connection']
       delete headers['upgrade']
 
+      // 增加超时时间，减少iOS连接失败
       const ws = new WebSocket(wsUrl, {
         headers: headers,
-        timeout: 5000,
+        timeout: 10000, // 增加到10秒
+        handshakeTimeout: 8000, // 握手超时8秒
+        perMessageDeflate: false, // 禁用压缩，提高iOS兼容性
+        skipUTF8Validation: false, // 确保UTF8验证
       })
 
       let authenticationState = {
@@ -196,11 +226,49 @@ class WebSocketHandler {
       }
 
       let resolved = false
+      
+      // 设置更短的错误检测超时
+      const connectionTimeout = setTimeout(() => {
+        if (!resolved) {
+          resolved = true
+          const timeoutError = 'WebSocket connection timeout'
+          Logger.error(`⏰ WebSocket连接超时: ${hostname}:${config.local_ha_port}`)
+          
+          // 记录调试结果
+          iOSDebugLogger.logConnectionResult(message.upgrade_id, false, timeoutError, 408)
+          
+          const timeoutResponse = {
+            type: 'websocket_upgrade_response',
+            upgrade_id: message.upgrade_id,
+            status_code: 408,
+            headers: {
+              'Connection': 'close',
+              'Content-Type': 'text/plain',
+              'Cache-Control': 'no-cache',
+              'X-Error-Reason': 'Connection timeout'
+            },
+            error: 'WebSocket connection timeout'
+          }
+          this.tunnelClient.send(timeoutResponse)
+          
+          try {
+            ws.terminate()
+          } catch (e) {
+            // 忽略终止错误
+          }
+          reject(new Error(timeoutError))
+        }
+      }, 12000) // 12秒总超时
 
       ws.on('open', () => {
         if (resolved) return
         resolved = true
+        clearTimeout(connectionTimeout) // 清除超时定时器
+        
         Logger.info(`✅ WebSocket连接建立成功: ${hostname}:${config.local_ha_port}`)
+        
+        // 记录成功连接用于调试
+        iOSDebugLogger.logConnectionResult(message.upgrade_id, true, null, 101)
 
         this.wsConnections.set(message.upgrade_id, {
           socket: ws,
@@ -208,26 +276,53 @@ class WebSocketHandler {
           timestamp: Date.now(),
         })
 
+        // 修复 WebSocket 握手响应头，确保完全符合 RFC 6455 标准
         const websocketKey = message.headers['sec-websocket-key']
-        const websocketAccept = websocketKey
-          ? crypto
-            .createHash('sha1')
-            .update(websocketKey + '258EAFA5-E914-47DA-95CA-C5AB0DC85B11')
-            .digest('base64')
-          : 'dummy-accept-key'
+        if (!websocketKey) {
+          Logger.error(`缺少 Sec-WebSocket-Key 头，WebSocket 升级失败: ${message.upgrade_id}`)
+          reject(new Error('Missing Sec-WebSocket-Key header'))
+          return
+        }
+
+        const websocketAccept = crypto
+          .createHash('sha1')
+          .update(websocketKey + '258EAFA5-E914-47DA-95CA-C5AB0DC85B11')
+          .digest('base64')
+
+        // 构建完整的 WebSocket 升级响应头，严格按照RFC 6455标准和iOS Starscream兼容性
+        const responseHeaders = {
+          'Upgrade': 'websocket',  // 必须是小写 'websocket'
+          'Connection': 'Upgrade', // 必须包含 'Upgrade'
+          'Sec-WebSocket-Accept': websocketAccept, // 计算的accept值
+          'Sec-WebSocket-Version': '13' // 明确指定WebSocket版本
+        }
+
+        // 检查并添加其他可能需要的 WebSocket 头信息
+        if (message.headers['sec-websocket-protocol']) {
+          // 处理子协议协商（如果需要）
+          const protocols = message.headers['sec-websocket-protocol'].split(',').map(p => p.trim())
+          // 选择第一个支持的协议（简化处理）
+          responseHeaders['Sec-WebSocket-Protocol'] = protocols[0]
+          Logger.info(`🔧 WebSocket子协议协商: ${protocols[0]}`)
+        }
+
+        // 添加iOS Starscream兼容性头信息
+        responseHeaders['Cache-Control'] = 'no-cache, no-store, must-revalidate'
+        responseHeaders['Pragma'] = 'no-cache'
+        responseHeaders['Expires'] = '0'
+        responseHeaders['X-Content-Type-Options'] = 'nosniff'
+        responseHeaders['X-Frame-Options'] = 'DENY'
 
         const response = {
           type: 'websocket_upgrade_response',
           upgrade_id: message.upgrade_id,
           status_code: 101,
-          headers: {
-            upgrade: 'websocket',
-            connection: 'upgrade',
-            'sec-websocket-accept': websocketAccept,
-          },
+          headers: responseHeaders,
         }
+        
         this.tunnelClient.send(response)
-        Logger.info(`📤 发送WebSocket升级响应: ${message.upgrade_id}, 状态: 101`)
+        Logger.info(`📤 发送WebSocket升级响应: ${message.upgrade_id}, 状态: 101, Accept: ${websocketAccept}`)
+        Logger.debug(`🔧 响应头: ${JSON.stringify(responseHeaders, null, 2)}`)
 
         ws.on('message', (data) => {
           Logger.info(`📥 WebSocket收到HA消息: ${message.upgrade_id}, 长度: ${data.length}, 内容: ${data.toString()}`)
@@ -282,16 +377,58 @@ class WebSocketHandler {
       })
 
       ws.on('error', (error) => {
-        Logger.error(`🔴 ws error: ${error}`)
+        Logger.error(`🔴 WebSocket连接错误: ${hostname}:${config.local_ha_port} - ${error.message}`)
         if (resolved) return
         resolved = true
+        clearTimeout(connectionTimeout) // 清除超时定时器
+
+        // 记录错误连接用于调试
+        iOSDebugLogger.logConnectionResult(message.upgrade_id, false, error.message, null)
+
+        // 为 iOS 客户端提供更详细的错误信息，特别针对Starscream
+        let statusCode = 502
+        let errorMessage = 'WebSocket connection failed'
+        let errorCode = 'CONNECTION_FAILED'
+        
+        if (error.message.includes('ECONNREFUSED')) {
+          statusCode = 502
+          errorMessage = 'Home Assistant service unavailable'
+          errorCode = 'SERVICE_UNAVAILABLE'
+        } else if (error.message.includes('timeout')) {
+          statusCode = 504
+          errorMessage = 'Connection timeout'
+          errorCode = 'TIMEOUT'
+        } else if (error.message.includes('EHOSTUNREACH')) {
+          statusCode = 503
+          errorMessage = 'Host unreachable'
+          errorCode = 'HOST_UNREACHABLE'
+        } else if (error.message.includes('ENOTFOUND')) {
+          statusCode = 502
+          errorMessage = 'DNS resolution failed'
+          errorCode = 'DNS_FAILED'
+        } else if (error.message.includes('certificate')) {
+          statusCode = 502
+          errorMessage = 'SSL certificate error'
+          errorCode = 'SSL_ERROR'
+        }
 
         const errorResponse = {
           type: 'websocket_upgrade_response',
           upgrade_id: message.upgrade_id,
-          status_code: 502,
-          headers: {},
+          status_code: statusCode,
+          headers: {
+            'Connection': 'close',
+            'Content-Type': 'text/plain',
+            'Cache-Control': 'no-cache, no-store, must-revalidate',
+            'Pragma': 'no-cache',
+            'Expires': '0',
+            'X-Error-Code': errorCode,
+            'X-Error-Detail': error.message
+          },
+          error: errorMessage
         }
+        
+        Logger.error(`📤 发送WebSocket错误响应: ${statusCode} - ${errorMessage} (${errorCode})`)
         this.tunnelClient.send(errorResponse)
         reject(error)
       })
@@ -316,6 +453,55 @@ class WebSocketHandler {
           reject(new Error('WebSocket连接超时'))
         }
       }, 5000)
+    })
+  }
+
+  /**
+   * iOS Starscream特定的WebSocket连接测试
+   */
+  async attemptWebSocketConnectionWithiOSFallback(message, hostname) {
+    Logger.info(`🔄 尝试WebSocket连接(iOS兼容模式): ${hostname}`)
+    
+    return new Promise((resolve, reject) => {
+      const config = getConfig()
+      const protocol = config.local_ha_port === 443 ? 'wss' : 'ws'
+      const wsUrl = `${protocol}://${hostname}:${config.local_ha_port}${message.url}`
+
+      // iOS Starscream优化的连接头
+      const headers = { ...message.headers }
+      headers['host'] = `${hostname}:${config.local_ha_port}`
+      headers['user-agent'] = 'Starscream/iOS'
+      headers['sec-websocket-version'] = '13'
+      
+      delete headers['connection']
+      delete headers['upgrade']
+
+      // iOS优化的WebSocket配置
+      const ws = new WebSocket(wsUrl, {
+        headers: headers,
+        timeout: 15000,
+        handshakeTimeout: 12000,
+        perMessageDeflate: false,
+        skipUTF8Validation: false,
+        protocolVersion: 13,
+        followRedirects: false,
+      })
+
+      let resolved = false
+      
+      ws.on('open', () => {
+        if (resolved) return
+        resolved = true
+        
+        Logger.info(`✅ iOS WebSocket连接建立成功: ${hostname}:${config.local_ha_port}`)
+        resolve(true)
+      })
+
+      ws.on('error', (error) => {
+        if (resolved) return
+        resolved = true
+        reject(error)
+      })
     })
   }
 
@@ -406,15 +592,28 @@ class WebSocketHandler {
    * 发送WebSocket升级错误
    */
   sendWebSocketUpgradeError(message, attemptedHosts) {
+    Logger.error(`🔴 WebSocket升级失败，所有主机都无法连接: ${message.upgrade_id}`)
+    Logger.error(`🔴 尝试的主机列表: ${attemptedHosts.join(', ')}`)
+
+    // 为iOS提供详细的错误信息
     const errorResponse = {
       type: 'websocket_upgrade_response',
       upgrade_id: message.upgrade_id,
       status_code: 502,
-      headers: { 'content-type': 'text/html; charset=utf-8' },
+      headers: {
+        'Connection': 'close',
+        'Content-Type': 'text/plain',
+        'Cache-Control': 'no-cache, no-store, must-revalidate',
+        'Pragma': 'no-cache',
+        'Expires': '0',
+        'X-Error-Code': 'ALL_HOSTS_FAILED',
+        'X-Attempted-Hosts': attemptedHosts.join(',')
+      },
+      error: `Home Assistant WebSocket service unavailable. Attempted hosts: ${attemptedHosts.join(', ')}`
     }
 
+    Logger.error(`📤 发送WebSocket升级错误响应: ${message.upgrade_id} - ${errorResponse.error}`)
     this.tunnelClient.send(errorResponse)
-    Logger.error(`WebSocket升级失败，尝试的主机: ${attemptedHosts.join(', ')}`)
   }
 
   /**
@@ -430,6 +629,47 @@ class WebSocketHandler {
         age: Date.now() - conn.timestamp
       }))
     }
+  }
+
+  /**
+   * 验证WebSocket请求的iOS兼容性
+   * 特别针对Starscream客户端的要求
+   */
+  validateiOSWebSocketRequest(message) {
+    const issues = []
+    
+    // 检查必要的WebSocket头
+    if (!message.headers['sec-websocket-key']) {
+      issues.push('Missing Sec-WebSocket-Key header')
+    }
+    
+    if (!message.headers['sec-websocket-version']) {
+      issues.push('Missing Sec-WebSocket-Version header')
+    } else if (message.headers['sec-websocket-version'] !== '13') {
+      issues.push(`Unsupported WebSocket version: ${message.headers['sec-websocket-version']}`)
+    }
+    
+    if (!message.headers['upgrade'] || message.headers['upgrade'].toLowerCase() !== 'websocket') {
+      issues.push('Invalid or missing Upgrade header')
+    }
+    
+    if (!message.headers['connection'] || !message.headers['connection'].toLowerCase().includes('upgrade')) {
+      issues.push('Invalid or missing Connection header')
+    }
+    
+    // 检查Origin头（iOS Safari需要）
+    if (!message.headers['origin'] && !message.headers['sec-websocket-origin']) {
+      Logger.info(`⚠️ WebSocket请求缺少Origin头，可能影响iOS兼容性: ${message.upgrade_id}`)
+    }
+    
+    if (issues.length > 0) {
+      Logger.error(`❌ WebSocket请求不符合iOS兼容性要求: ${message.upgrade_id}`)
+      issues.forEach(issue => Logger.error(`   - ${issue}`))
+      return false
+    }
+    
+    Logger.info(`✅ WebSocket请求通过iOS兼容性检查: ${message.upgrade_id}`)
+    return true
   }
 }
 
