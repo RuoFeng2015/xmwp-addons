@@ -1,6 +1,6 @@
 {
   "name": "ha-remote-access-service",
-  "host": "110.41.20.134",
+  "host": "114.132.237.146",
   "protocol": "sftp",
   "port": 22,
   "username": "root",
