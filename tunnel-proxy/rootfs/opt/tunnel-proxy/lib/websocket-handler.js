@@ -77,75 +77,57 @@ class WebSocketHandler {
       return
     }
 
-    try {
-      // 将 base64 解码为 Buffer
-      const binaryData = Buffer.from(data, 'base64')
+    // 检查WebSocket连接状态
+    if (wsConnection.socket.readyState !== wsConnection.socket.OPEN) {
+      Logger.warn(`⚠️ WebSocket连接未打开，无法转发数据: ${upgrade_id}, 状态: ${wsConnection.socket.readyState}`)
+      return
+    }
+
+    // 将 base64 解码为 Buffer
+    const binaryData = Buffer.from(data, 'base64')
+    Logger.info(`📥 [WebSocket] 收到来自客户端的数据: ${upgrade_id}, 长度: ${binaryData.length}`)
+
+    // 使用异步方法判断是否为二进制消息
+    const isBinaryMessage = await this.isBinaryWebSocketMessageAsync(binaryData)
+
+    if (isBinaryMessage) {
+      // 二进制数据直接发送
+      Logger.info(`📦 转发二进制WebSocket数据到HA: ${upgrade_id}, 大小: ${binaryData.length} bytes`)
+      wsConnection.socket.send(binaryData)
+    } else {
+      // 文本数据处理
+      const textData = binaryData.toString('utf8')
       
-      Logger.info(`📥 [WebSocket] 收到来自客户端的数据: ${upgrade_id}, 长度: ${binaryData.length}`)
-
-      // 使用异步方法判断是否为二进制消息
-      const isBinaryMessage = await this.isBinaryWebSocketMessageAsync(binaryData)
-
-      if (isBinaryMessage) {
-        // 二进制消息直接发送
-        Logger.info(`📦 发送二进制WebSocket数据到HA: ${upgrade_id}, 大小: ${binaryData.length} bytes`)
-        // 检查WebSocket状态
-        if (wsConnection.socket.readyState === wsConnection.socket.OPEN) {
-          wsConnection.socket.send(binaryData)
-        } else {
-          Logger.warn(`⚠️ WebSocket连接未打开，无法发送二进制数据: ${upgrade_id}, 状态: ${wsConnection.socket.readyState}`)
-        }
-      } else {
-        // 文本消息，尝试解码为UTF-8字符串
-        const stringData = binaryData.toString('utf8')
-
-        // 验证是否为有效的UTF-8字符串
-        if (this.isValidUTF8String(stringData)) {
-          // 尝试解析JSON以获取更多信息
+      // 验证UTF-8有效性
+      if (this.isValidUTF8String(textData)) {
+        Logger.info(`📄 转发文本WebSocket数据到HA: ${upgrade_id}, 长度: ${textData.length}`)
+        Logger.info(`� 内容预览: ${textData.substring(0, 200)}${textData.length > 200 ? '...' : ''}`)
+        
+        // 检查是否是认证消息
+        if (textData.includes('"type":"auth"') || textData.includes('"type": "auth"')) {
+          Logger.info(`🔐 [认证监控] *** 检测到iOS认证消息! ***`)
+          Logger.info(`🔐 [认证监控] 连接ID: ${upgrade_id}`)
+          Logger.info(`🔐 [认证监控] 完整认证消息: ${textData}`)
+          
+          // 尝试解析JSON来获取更多信息
           try {
-            const jsonMessage = JSON.parse(stringData)
-            Logger.info(`🔍 [iOS监控] 收到JSON消息: ${upgrade_id}, 类型: ${jsonMessage.type || '未知'}`)
-            
-            // 特别关注认证相关消息 - 这是关键！
-            if (jsonMessage.type === 'auth') {
-              Logger.info(`🔐 [认证监控] *** 收到来自iOS的认证消息! ***`)
-              Logger.info(`🔐 [认证监控] 连接ID: ${upgrade_id}`)
-              Logger.info(`🔐 [认证监控] 消息完整内容: ${JSON.stringify(jsonMessage, null, 2)}`)
-              Logger.info(`🔐 [认证监控] 现在将立即转发到HA...`)
-            } else if (jsonMessage.type) {
-              Logger.info(`📨 [消息监控] 收到${jsonMessage.type}类型消息: ${upgrade_id}`)
+            const authMessage = JSON.parse(textData)
+            Logger.info(`🔐 [认证监控] 认证消息类型: ${authMessage.type}`)
+            if (authMessage.access_token) {
+              Logger.info(`� [认证监控] 包含访问令牌，长度: ${authMessage.access_token.length}`)
             }
-            
-            Logger.info(`✅ WebSocket JSON数据已发送到HA: ${upgrade_id}, 类型: ${jsonMessage.type}`)
-          } catch (jsonError) {
-            Logger.info(`📄 WebSocket文本数据已发送到HA: ${upgrade_id}, 长度: ${stringData.length}`)
-            Logger.info(`📄 内容预览: ${stringData.substring(0, 100)}...`)
-            
-            // 检查是否可能是iOS发送的认证数据但格式不同
-            if (stringData.includes('auth') || stringData.includes('token') || stringData.includes('access_token')) {
-              Logger.warn(`🔍 [认证监控] 可能包含认证信息的非JSON数据: ${stringData}`)
-            }
-          }
-
-          // 发送文本数据
-          if (wsConnection.socket.readyState === wsConnection.socket.OPEN) {
-            wsConnection.socket.send(stringData)
-          } else {
-            Logger.warn(`⚠️ WebSocket连接未打开，无法发送文本数据: ${upgrade_id}, 状态: ${wsConnection.socket.readyState}`)
-          }
-        } else {
-          // UTF-8解码失败，当作二进制数据处理
-          Logger.warn(`⚠️ UTF-8解码失败，作为二进制数据发送: ${upgrade_id}`)
-          if (wsConnection.socket.readyState === wsConnection.socket.OPEN) {
-            wsConnection.socket.send(binaryData)
-          } else {
-            Logger.warn(`⚠️ WebSocket连接未打开，无法发送二进制数据: ${upgrade_id}, 状态: ${wsConnection.socket.readyState}`)
+          } catch (parseError) {
+            Logger.warn(`� [认证监控] JSON解析失败，但仍将转发: ${parseError.message}`)
           }
         }
+        
+        // 直接发送文本数据
+        wsConnection.socket.send(textData)
+      } else {
+        // UTF-8解码失败，按二进制处理
+        Logger.warn(`⚠️ UTF-8解码失败，按二进制数据转发: ${upgrade_id}`)
+        wsConnection.socket.send(binaryData)
       }
-    } catch (error) {
-      Logger.error(`WebSocket数据转发失败: ${error.message}`)
-      Logger.error(`🔍 [错误监控] 连接ID: ${upgrade_id}, 数据长度: ${data ? data.length : 0}`)
     }
   }
 
@@ -156,7 +138,12 @@ class WebSocketHandler {
     const { upgrade_id } = message
     const wsConnection = this.wsConnections.get(upgrade_id)
 
-    if (wsConnection && wsConnection.socket) {
+    if (!wsConnection) {
+      Logger.warn(`⚠️ 尝试关闭不存在的WebSocket连接: ${upgrade_id}`)
+      return
+    }
+
+    if (wsConnection.socket) {
       try {
         // 检查socket状态和可用的关闭方法
         const ws = wsConnection.socket
@@ -183,11 +170,10 @@ class WebSocketHandler {
       } catch (error) {
         Logger.error(`❌ WebSocket关闭处理错误: ${error.message}`)
       }
-      
-      this.wsConnections.delete(upgrade_id)
-    } else {
-      Logger.warn(`⚠️ 尝试关闭不存在的WebSocket连接: ${upgrade_id}`)
     }
+    
+    // 清理连接记录，避免重复处理
+    this.wsConnections.delete(upgrade_id)
   }
 
   /**
@@ -758,6 +744,13 @@ class WebSocketHandler {
    * 发送关闭通知
    */
   sendCloseNotification(upgrade_id) {
+    // 检查连接是否存在，避免重复关闭
+    if (!this.wsConnections.has(upgrade_id)) {
+      Logger.warn(`⚠️ 连接已关闭，跳过重复关闭通知: ${upgrade_id}`)
+      return
+    }
+
+    // 先删除连接，防止重复处理
     this.wsConnections.delete(upgrade_id)
 
     const response = {
