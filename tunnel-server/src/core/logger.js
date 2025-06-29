@@ -17,11 +17,25 @@ class Logger {
    */
   static log(level, message, ...args) {
     if (this.levels[level] <= this.currentLevel) {
-      const timestamp = new Date().toISOString();
-      console.log(`[${timestamp}] [${level.toUpperCase()}] ${message}`, ...args);
+
+      console.log(`[${this.getNowTime()}] [${level.toUpperCase()}] ${message}`, ...args);
     }
   }
 
+  static getNowTime() {
+    var date = new Date();
+    let year = date.getFullYear();
+    let month = this.padZero(date.getMonth() + 1);
+    let day = this.padZero(date.getDate());
+    let hours = this.padZero(date.getHours());
+    let minutes = this.padZero(date.getMinutes());
+    let seconds = this.padZero(date.getSeconds());
+    return year + "-" + month + "-" + day + " " + hours + ":" + minutes + ":" + seconds
+  };
+  // 补0
+  static padZero(num) {
+    return num < 10 ? '0' + num : num;
+  }
   /**
    * 错误日志
    */
