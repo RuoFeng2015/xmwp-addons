@@ -1,4 +1,6 @@
 {
+  "connection_type": "domain",
+  "server_domain": "tunnel.wzzhk.club",
   "server_host": "114.132.237.146",
   "server_port": 3080,
   "local_ha_port": 8123,
