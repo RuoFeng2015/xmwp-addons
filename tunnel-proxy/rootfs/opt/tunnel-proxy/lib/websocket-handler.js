@@ -361,10 +361,14 @@ class WebSocketHandler {
         
         this.tunnelClient.send(response)
         Logger.info(`📤 发送WebSocket升级响应: ${message.upgrade_id}, 状态: 101, Accept: ${websocketAccept}`)
+        Logger.info(`🍎 [iOS修复] 升级响应已发送，检查iOS是否接受`)
         Logger.debug(`🔧 响应头: ${JSON.stringify(responseHeaders, null, 2)}`)
 
         // 为iOS添加连接稳定性监控
         this.setupiOSConnectionMonitoring(ws, message.upgrade_id)
+        
+        // 模拟浏览器行为以提高iOS兼容性
+        this.setupBrowserLikeWebSocket(ws, message.upgrade_id, message.headers)
 
         // 添加iOS专用的连接监控
         ws.on('message', (data) => {
@@ -403,9 +407,9 @@ class WebSocketHandler {
 
           try {
             if (isAuthMessage) {
-              // 认证消息使用同步发送，并添加多重保障
-              Logger.info(`🔐 准备立即发送认证消息: ${messageType} - ${message.upgrade_id}`)
-              this.sendAuthMessage(response, messageType, message.upgrade_id)
+              // 使用iOS专用认证处理器
+              Logger.info(`🔐 准备发送认证消息: ${messageType} - ${message.upgrade_id}`)
+              this.handleiOSAuthMessage(ws, response, messageType, message.upgrade_id, authenticationState)
             } else {
               this.tunnelClient.send(response)
               Logger.info(`📤 已转发WebSocket消息: ${message.upgrade_id}`)
@@ -911,8 +915,21 @@ class WebSocketHandler {
     
     if (protocols) {
       Logger.info(`🔧 [iOS修复] 客户端请求协议: ${protocols}`)
-      Logger.info(`🔧 [iOS修复] 不回复协议以匹配HA行为`)
-      // 不设置 Sec-WebSocket-Protocol 响应头
+      
+      // 检查是否是Home Assistant相关的协议
+      const protocolList = protocols.split(',').map(p => p.trim())
+      const haProtocol = protocolList.find(p => 
+        p.includes('homeassistant') || 
+        p.includes('hass') || 
+        p.includes('websocket')
+      )
+      
+      if (haProtocol) {
+        Logger.info(`🔧 [iOS修复] 找到HA相关协议: ${haProtocol}，将添加到响应`)
+        headers['Sec-WebSocket-Protocol'] = haProtocol
+      } else {
+        Logger.info(`🔧 [iOS修复] 未找到HA协议，不设置协议响应`)
+      }
     }
     
     Logger.info(`🔧 [iOS修复] 最终响应头:`)
@@ -970,6 +987,159 @@ class WebSocketHandler {
       if (pingInterval) {
         clearInterval(pingInterval)
         Logger.info(`🍎 [iOS监控] 清理连接监控: ${upgradeId}`)
+      }
+    })
+  }
+
+  /**
+   * iOS专用的认证消息处理
+   */
+  handleiOSAuthMessage(ws, data, messageType, upgradeId, authenticationState) {
+    Logger.info(`🍎 [iOS认证] 处理认证消息: ${messageType}`)
+    
+    const userAgent = this.wsConnections.get(upgradeId)?.userAgent || ''
+    const isiOS = userAgent.includes('Home Assistant') && userAgent.includes('iOS')
+    
+    if (!isiOS) {
+      // 不是iOS，使用标准处理
+      return this.sendAuthMessage(data, messageType, upgradeId)
+    }
+    
+    // iOS专用处理
+    if (messageType === 'auth_required') {
+      Logger.info(`🍎 [iOS认证] iOS客户端收到认证要求`)
+      
+      // 重新编码消息以确保iOS兼容性
+      const originalData = data.data
+      const reEncodedData = this.encodeiOSWebSocketMessage(
+        Buffer.from(originalData, 'base64').toString('utf8'), 
+        upgradeId
+      )
+      
+      // 检查Starscream可能的问题
+      const response = {
+        type: 'websocket_data',
+        upgrade_id: upgradeId,
+        data: reEncodedData,
+      }
+      
+      // 为iOS添加额外的确保措施
+      try {
+        // 立即发送，不缓冲
+        const sendResult = this.tunnelClient.send(response)
+        Logger.info(`🍎 [iOS认证] 认证消息发送状态: ${sendResult}`)
+        
+        // 强制刷新socket缓冲区
+        setImmediate(() => {
+          if (this.tunnelClient.socket) {
+            try {
+              if (typeof this.tunnelClient.socket.flush === 'function') {
+                this.tunnelClient.socket.flush()
+              }
+              if (typeof this.tunnelClient.socket._flush === 'function') {
+                this.tunnelClient.socket._flush()
+              }
+            } catch (flushError) {
+              Logger.warn(`🍎 [iOS认证] Socket flush失败: ${flushError.message}`)
+            }
+          }
+        })
+        
+        // 添加iOS认证超时监控
+        setTimeout(() => {
+          if (!authenticationState.responseSent) {
+            Logger.warn(`🍎 [iOS认证] 5秒内未收到iOS认证响应`)
+            Logger.warn(`🍎 [iOS认证] 可能原因:`)
+            Logger.warn(`   1. iOS应用WebSocket库不兼容`)
+            Logger.warn(`   2. 消息格式问题`)
+            Logger.warn(`   3. 认证流程中断`)
+            Logger.warn(`   4. Starscream协议错误`)
+          }
+        }, 5000)
+        
+        Logger.info(`🍎 [iOS认证] 已发送认证要求给iOS客户端`)
+        
+      } catch (error) {
+        Logger.error(`🍎 [iOS认证] 发送认证消息失败: ${error.message}`)
+      }
+    }
+  }
+
+  /**
+   * iOS专用的WebSocket消息编码处理
+   */
+  encodeiOSWebSocketMessage(message, upgradeId) {
+    try {
+      // 确保消息是有效的UTF-8 JSON
+      const messageStr = typeof message === 'string' ? message : JSON.stringify(message)
+      
+      // 验证JSON格式
+      const parsed = JSON.parse(messageStr)
+      
+      // 重新序列化以确保格式正确
+      const cleanJson = JSON.stringify(parsed)
+      
+      // 转换为base64
+      const base64Data = Buffer.from(cleanJson, 'utf8').toString('base64')
+      
+      Logger.info(`🍎 [iOS编码] 消息编码验证通过: ${upgradeId}`)
+      Logger.info(`🍎 [iOS编码] 原始长度: ${messageStr.length}, 编码后长度: ${base64Data.length}`)
+      
+      return base64Data
+      
+    } catch (error) {
+      Logger.error(`🍎 [iOS编码] 消息编码失败: ${error.message}`)
+      Logger.error(`🍎 [iOS编码] 原始消息: ${JSON.stringify(message)}`)
+      
+      // 回退到原始编码
+      const fallbackStr = typeof message === 'string' ? message : JSON.stringify(message)
+      return Buffer.from(fallbackStr, 'utf8').toString('base64')
+    }
+  }
+
+  /**
+   * 模拟浏览器WebSocket行为以提高iOS兼容性
+   */
+  setupBrowserLikeWebSocket(ws, upgradeId, headers) {
+    const userAgent = headers['user-agent'] || ''
+    const isiOS = userAgent.includes('Home Assistant') && userAgent.includes('iOS')
+    
+    if (!isiOS) return
+    
+    Logger.info(`🍎 [浏览器模拟] 为iOS设置浏览器兼容模式`)
+    
+    // 添加浏览器特有的事件处理
+    ws.on('open', () => {
+      Logger.info(`🍎 [浏览器模拟] WebSocket连接已打开: ${upgradeId}`)
+      
+      // 模拟浏览器的初始化行为
+      setTimeout(() => {
+        if (ws.readyState === ws.OPEN) {
+          try {
+            // 发送一个空的ping来模拟浏览器行为
+            ws.ping(Buffer.alloc(0))
+            Logger.info(`🍎 [浏览器模拟] 发送初始ping: ${upgradeId}`)
+          } catch (error) {
+            Logger.warn(`🍎 [浏览器模拟] 初始ping失败: ${error.message}`)
+          }
+        }
+      }, 100)
+    })
+    
+    // 处理pong响应
+    ws.on('pong', (data) => {
+      Logger.info(`🍎 [浏览器模拟] 收到pong响应: ${upgradeId}`)
+    })
+    
+    // 监听连接状态变化
+    ws.on('close', (code, reason) => {
+      Logger.info(`🍎 [浏览器模拟] 连接关闭: ${upgradeId}, 代码: ${code}`)
+      
+      // 分析关闭原因
+      if (code === 1002) {
+        Logger.error(`🍎 [浏览器模拟] 协议错误关闭，可能是Starscream兼容性问题`)
+      } else if (code === 1006) {
+        Logger.error(`🍎 [浏览器模拟] 异常关闭，可能是网络或协议问题`)
       }
     })
   }

@@ -13,9 +13,16 @@ let config = {}
 let configChangeId = 0
 
 // 配置变化追踪
-function trackConfigChange(operation, newValue = null) {
+function trackConfigChange(operation, newValue = null, forceLog = false) {
   configChangeId++
   const timestamp = new Date().toISOString()
+  
+  // 只在重要操作或强制记录时输出日志
+  const importantOperations = ['loadConfig开始', 'validateConfig开始', 'setConfig被调用', '修复connection_type']
+  const shouldLog = forceLog || importantOperations.some(op => operation.includes(op))
+  
+  if (!shouldLog) return
+  
   Logger.info(`🔍 [配置追踪 #${configChangeId}] ${timestamp} - ${operation}`)
   
   if (newValue !== null) {
@@ -26,9 +33,11 @@ function trackConfigChange(operation, newValue = null) {
     Logger.info(`🔍 [配置追踪 #${configChangeId}] 当前connection_type: ${config.connection_type} (${typeof config.connection_type})`)
   }
   
-  // 打印调用栈以追踪谁在修改配置
-  const stack = new Error().stack
-  Logger.info(`🔍 [配置追踪 #${configChangeId}] 调用栈: ${stack.split('\n').slice(1, 4).join('\n')}`)
+  // 只在出现问题时打印调用栈
+  if (operation.includes('修复') || operation.includes('错误')) {
+    const stack = new Error().stack
+    Logger.info(`🔍 [配置追踪 #${configChangeId}] 调用栈: ${stack.split('\n').slice(1, 4).join('\n')}`)
+  }
 }
 
 /**
@@ -165,11 +174,10 @@ class ConfigManager {
   }
 
   static getConfig() {
-    trackConfigChange('getConfig被调用')
-    
     // 添加配置访问时的安全检查
     if (!config || Object.keys(config).length === 0) {
       Logger.warn(`🔧 [配置访问] 配置为空，尝试重新加载`)
+      trackConfigChange('getConfig-配置为空，重新加载', null, true)
       this.loadConfig()
       this.validateConfig()
     }
@@ -178,7 +186,7 @@ class ConfigManager {
     if (config.connection_type === null || config.connection_type === undefined) {
       Logger.warn(`🔧 [配置访问] connection_type异常(${config.connection_type})，重置为domain`)
       config.connection_type = 'domain'
-      trackConfigChange('getConfig中修复connection_type')
+      trackConfigChange('getConfig中修复connection_type', null, true)
     }
     
     return config
