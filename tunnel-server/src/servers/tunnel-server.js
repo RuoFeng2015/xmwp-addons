@@ -284,7 +284,7 @@ class TunnelServer {
     // 查找对应的原始请求
     const requestInfo = this.requestQueue.get(request_id);
     if (requestInfo) {
-      const { res } = requestInfo;
+      const { res, req } = requestInfo;
 
       try {
         // 设置响应头
@@ -292,6 +292,21 @@ class TunnelServer {
           Object.entries(headers).forEach(([key, value]) => {
             res.setHeader(key, value);
           });
+        }
+
+        // 添加iOS应用需要的关键响应头
+        if (!res.getHeader('Access-Control-Allow-Origin')) {
+          res.setHeader('Access-Control-Allow-Origin', '*');
+        }
+        if (!res.getHeader('Access-Control-Allow-Credentials')) {
+          res.setHeader('Access-Control-Allow-Credentials', 'true');
+        }
+        
+        // 确保Content-Type正确设置（特别重要用于JSON API响应）
+        if (!res.getHeader('Content-Type') && req && req.url) {
+          if (req.url.includes('/api/')) {
+            res.setHeader('Content-Type', 'application/json');
+          }
         }
 
         // 处理响应体
@@ -303,6 +318,18 @@ class TunnelServer {
 
         clientInfo.bytesSent += responseBody.length;
         clientInfo.requestCount++;
+
+        // 添加详细的HTTP响应日志（仅针对API请求）
+        if (req && req.url && req.url.includes('/api/')) {
+          Logger.info(`📤 [HTTP API响应] ${req.method} ${req.url} -> ${status_code}`);
+          Logger.info(`📤 [HTTP API响应] Content-Type: ${res.getHeader('Content-Type')}`);
+          Logger.info(`📤 [HTTP API响应] 响应长度: ${responseBody.length} bytes`);
+          
+          // 如果是JSON响应且不太大，记录内容预览
+          if (res.getHeader('Content-Type')?.includes('json') && responseBody.length < 500) {
+            Logger.info(`📤 [HTTP API响应] 内容预览: ${responseBody.toString().substring(0, 200)}...`);
+          }
+        }
 
       } catch (error) {
         Logger.error(`发送代理响应失败: ${error.message}`);
