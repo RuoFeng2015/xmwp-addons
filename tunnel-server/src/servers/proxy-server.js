@@ -99,6 +99,19 @@ class ProxyServer {
       }
     }
 
+    // 🍎 [iOS修复] 处理iOS应用使用IP地址访问的情况
+    // 如果host是服务器IP，尝试查找默认客户端
+    const cleanHost = host.split(':')[0];
+    if (cleanHost === CONFIG.SERVER_IP || cleanHost === '114.132.237.146') {
+      console.log(`🍎 [iOS修复] 检测到IP访问: ${cleanHost}，查找默认客户端`);
+      const authenticatedClients = this.clientManager.getAuthenticatedClients();
+      if (authenticatedClients.length > 0) {
+        client = authenticatedClients[0]; // 使用第一个认证的客户端
+        console.log(`🍎 [iOS修复] 使用默认客户端: ${client.clientId}`);
+        return client;
+      }
+    }
+
     // 备用路由：使用子域名或路径
     const subdomain = Utils.extractSubdomain(host);
     if (subdomain) {
