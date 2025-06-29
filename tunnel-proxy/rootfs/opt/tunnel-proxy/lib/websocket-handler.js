@@ -542,6 +542,18 @@ class WebSocketHandler {
           }
         })
 
+        resolve(true)
+      })
+
+      ws.on('error', (error) => {
+        Logger.error(`🔴 WebSocket连接错误: ${hostname}:${config.local_ha_port} - ${error.message}`)
+        if (resolved) return
+        resolved = true
+        clearTimeout(connectionTimeout) // 清除超时定时器
+
+        // 记录错误连接用于调试
+        iOSDebugLogger.logConnectionResult(message.upgrade_id, false, error.message, null)
+
         // 为 iOS 客户端提供更详细的错误信息，特别针对Starscream
         let statusCode = 502
         let errorMessage = 'WebSocket connection failed'
