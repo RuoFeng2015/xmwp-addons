@@ -1,0 +1,31 @@
+version: "3.8"
+
+services:
+  tunnel-server:
+    build: .
+    ports:
+      - "3080:3080"  # 隧道端口
+      - "3081:3081"  # 代理端口
+      - "3082:3082"  # 管理端口
+    environment:
+      - MAX_CLIENTS=50
+      - HEARTBEAT_INTERVAL=30000
+      - CLIENT_TIMEOUT=90000
+      - JWT_SECRET=${JWT_SECRET:-tunnel-server-secret}
+      - LOG_LEVEL=info
+    volumes:
+      - ./logs:/app/logs
+      - ./.env:/app/.env
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3082/api/status"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    resources:
+      limits:
+        memory: 512MB
+        cpus: '2'
+      reservations:
+        memory: 256MB
+        cpus: '1'
