@@ -22,8 +22,23 @@ class TunnelProxyApp {
       ErrorHandler.setupGlobalErrorHandlers()
 
       // 加载和验证配置
+      Logger.info('🚀 开始加载配置...')
       ConfigManager.loadConfig()
+      Logger.info('✅ 配置加载完成，开始验证...')
       ConfigManager.validateConfig()
+      
+      // 验证配置加载是否成功
+      const config = ConfigManager.getConfig()
+      Logger.info(`🔍 [启动检查] 最终配置验证:`)
+      Logger.info(`   - connection_type: ${config.connection_type} (类型: ${typeof config.connection_type})`)
+      Logger.info(`   - server_domain: ${config.server_domain}`)
+      Logger.info(`   - server_port: ${config.server_port}`)
+      Logger.info(`   - client_id: ${config.client_id}`)
+      
+      if (!config.connection_type || config.connection_type === null) {
+        Logger.error('🚨 配置验证失败：connection_type仍然为null')
+        process.exit(1)
+      }
 
       // 创建隧道管理器
       tunnelManager = new TunnelManager()      // 创建代理服务器
@@ -31,7 +46,6 @@ class TunnelProxyApp {
       server = proxyServer.createServer()
 
       // 启动服务器
-      const config = ConfigManager.getConfig()
       server.listen(config.proxy_port, () => {
         Logger.info(`代理服务器已启动，监听端口: ${config.proxy_port}`)
       })
