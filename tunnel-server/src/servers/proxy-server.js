@@ -29,33 +29,10 @@ class ProxyServer {
    * 设置路由
    */
   setupRoutes() {
-    // 增强的CORS配置 - 特别针对iOS Home Assistant应用
+    // 简化的CORS配置 - 避免过度配置导致兼容性问题
     this.app.use(cors({
-      origin: '*', // 允许所有来源
-      credentials: true, // 允许认证信息
-      allowMethods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS', 'PATCH'],
-      allowHeaders: [
-        'Accept',
-        'Accept-Language', 
-        'Authorization',
-        'Content-Type',
-        'User-Agent',
-        'X-Requested-With',
-        'Cache-Control',
-        'Pragma',
-        'If-Modified-Since',
-        'If-None-Match',
-        'X-Real-IP',
-        'X-Forwarded-For',
-        'X-Forwarded-Proto'
-      ],
-      exposeHeaders: [
-        'Content-Length',
-        'Content-Type',
-        'Date',
-        'Server',
-        'X-Response-Time'
-      ]
+      origin: '*',
+      credentials: true
     }));
 
     // RAW body parser - 保持原始请求体，确保100%还原转发
@@ -97,23 +74,16 @@ class ProxyServer {
     const method = ctx.method;
     const userAgent = ctx.headers['user-agent'] || '';
 
-    // 详细的HTTP请求日志 - 特别关注iOS应用的请求
-    Logger.info(`📥 [HTTP请求] ${method} ${path}`);
-    Logger.info(`📥 [HTTP请求] Host: ${host}`);
-    Logger.info(`📥 [HTTP请求] User-Agent: ${userAgent}`);
+    // 基本的请求日志
+    Logger.info(`📥 [HTTP请求] ${method} ${path} from ${host}`);
     
-    // 检测iOS应用请求
+    // 检测重要的请求类型
     if (userAgent.includes('Home Assistant') || userAgent.includes('HomeAssistant')) {
-      Logger.info(`🍎 [iOS应用] *** 检测到iOS Home Assistant应用请求! ***`);
-      Logger.info(`🍎 [iOS应用] 请求路径: ${path}`);
-      Logger.info(`🍎 [iOS应用] 这可能是认证验证请求`);
+      Logger.info(`🍎 [iOS应用] 检测到iOS请求: ${path}`);
     }
 
-    // 检测API请求
     if (path.includes('/api/')) {
-      Logger.info(`🔌 [API请求] *** 检测到API请求! ***`);
-      Logger.info(`🔌 [API请求] 端点: ${path}`);
-      Logger.info(`🔌 [API请求] 这是关键的认证验证请求`);
+      Logger.info(`🔌 [API请求] 检测到API请求: ${path}`);
     }
 
     console.log("%c Line:75 🥝 host", "color:#93c0a4", host);
@@ -121,21 +91,8 @@ class ProxyServer {
     // 查找对应的客户端
     const client = this.findTargetClient(host, path);
     if (!client || !client.authenticated) {
-      // 增强错误日志 - 特别针对iOS应用请求
-      if (userAgent.includes('Home Assistant') || userAgent.includes('HomeAssistant')) {
-        Logger.error(`🍎 [iOS应用错误] *** iOS应用请求失败 - 找不到客户端! ***`);
-        Logger.error(`🍎 [iOS应用错误] Host: ${host}`);
-        Logger.error(`🍎 [iOS应用错误] Path: ${path}`);
-        Logger.error(`🍎 [iOS应用错误] 这会导致OnboardingAuthError!`);
-      }
-
-      if (path.includes('/api/')) {
-        Logger.error(`🔌 [API错误] *** API请求失败 - 找不到客户端! ***`);
-        Logger.error(`🔌 [API错误] 这是导致iOS认证失败的关键原因!`);
-      }
-
-      Logger.error(`❌ [代理错误] 客户端查找失败: host=${host}, client=${client?.clientId || 'null'}, authenticated=${client?.authenticated || 'N/A'}`);
-
+      Logger.error(`❌ [代理错误] 找不到客户端: host=${host}, path=${path}`);
+      
       ctx.status = 502;
       ctx.body = {
         error: 'No available tunnel client',
@@ -144,7 +101,7 @@ class ProxyServer {
       return;
     }
 
-    Logger.info(`✅ [代理成功] 找到客户端: ${client.clientId}, 开始转发请求`);
+    Logger.info(`✅ [代理成功] 找到客户端: ${client.clientId}`);
 
     // 转发请求到客户端
     await this.forwardRequest(ctx, client);
@@ -220,6 +177,16 @@ class ProxyServer {
     // 移除端口号
     const cleanHost = host.split(':')[0];
     console.log(`🔍 查找域名客户端: ${cleanHost}`);
+
+    // 特殊处理：如果host是服务器IP地址，使用默认客户端
+    if (cleanHost === CONFIG.SERVER_IP || cleanHost === '114.132.237.146') {
+      console.log(`🌐 检测到服务器IP访问: ${cleanHost}，使用默认客户端`);
+      const authenticatedClients = this.clientManager.getAuthenticatedClients();
+      if (authenticatedClients.length > 0) {
+        console.log(`✅ 为IP访问分配默认客户端: ${authenticatedClients[0].clientId}`);
+        return authenticatedClients[0];
+      }
+    }
 
     // 检查是否启用域名模式
     if (!CONFIG.DOMAIN_MODE) {

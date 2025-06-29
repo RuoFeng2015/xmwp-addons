@@ -16,6 +16,17 @@ class HttpProxyHandler {
    * 智能连接到HA
    */
   async handleProxyRequest(message, getTargetHosts, lastSuccessfulHost) {
+    // 详细记录HTTP请求信息
+    Logger.info(`🔄 [HTTP代理] 开始处理请求: ${message.method} ${message.url}`);
+    Logger.info(`🔄 [HTTP代理] 请求ID: ${message.request_id}`);
+    
+    // 特别标识OAuth认证请求
+    if (message.url && (message.url.includes('/auth/token') || message.url.includes('/auth/'))) {
+      Logger.info(`🔐 [OAuth认证] *** 检测到OAuth认证请求! ***`);
+      Logger.info(`🔐 [OAuth认证] 路径: ${message.url}`);
+      Logger.info(`🔐 [OAuth认证] 这是iOS应用认证的关键请求`);
+    }
+
     // 智能获取目标主机列表
     const discoveredHosts = await getTargetHosts()
 
@@ -24,23 +35,25 @@ class HttpProxyHandler {
       ? [lastSuccessfulHost, ...discoveredHosts.filter((h) => h !== lastSuccessfulHost)]
       : discoveredHosts
 
-    Logger.debug(`🔍 尝试连接 ${targetHosts.length} 个潜在的 Home Assistant 主机...`)
+    Logger.info(`🔍 [HTTP代理] 尝试连接 ${targetHosts.length} 个HA主机: ${targetHosts.join(', ')}`);
 
     for (const hostname of targetHosts) {
       try {
-        Logger.debug(`🔗 尝试连接: ${hostname}`)
+        Logger.info(`🔗 [HTTP代理] 尝试连接: ${hostname}`);
         const success = await this.attemptHAConnection(message, hostname)
         if (success) {
           // 使用日志去重机制，避免短时间内重复输出相同主机的连接成功日志
           this.logConnectionSuccess(hostname)
+          Logger.info(`✅ [HTTP代理] 请求成功转发到: ${hostname}`);
           return hostname
         }
       } catch (error) {
-        Logger.debug(`❌ 连接失败 ${hostname}: ${error.message}`)
+        Logger.error(`❌ [HTTP代理] 连接失败 ${hostname}: ${error.message}`)
         continue
       }
     }
 
+    Logger.error(`❌ [HTTP代理] 所有主机连接失败，发送错误响应`);
     this.sendDetailedError(message, targetHosts)
     return null
   }
@@ -79,11 +92,26 @@ class HttpProxyHandler {
       }
 
       const proxyReq = http.request(options, (proxyRes) => {
+        Logger.info(`📥 [HTTP响应] 收到HA响应: ${proxyRes.statusCode} ${message.method} ${message.url}`);
+        
+        // 特别记录OAuth认证响应
+        if (message.url && message.url.includes('/auth/')) {
+          Logger.info(`🔐 [OAuth响应] OAuth认证响应状态: ${proxyRes.statusCode}`);
+          Logger.info(`🔐 [OAuth响应] 响应头: ${JSON.stringify(proxyRes.headers)}`);
+        }
+
         let responseBody = Buffer.alloc(0)
         proxyRes.on('data', (chunk) => {
           responseBody = Buffer.concat([responseBody, chunk])
         })
         proxyRes.on('end', () => {
+          Logger.info(`📤 [HTTP响应] 响应完成: ${responseBody.length} bytes, 状态: ${proxyRes.statusCode}`);
+          
+          // OAuth响应内容预览
+          if (message.url && message.url.includes('/auth/') && responseBody.length < 500) {
+            Logger.info(`🔐 [OAuth响应] 内容预览: ${responseBody.toString()}`);
+          }
+
           const response = {
             type: 'proxy_response',
             request_id: message.request_id,
@@ -93,15 +121,31 @@ class HttpProxyHandler {
           }
 
           this.tunnelClient.send(response)
+          Logger.info(`📤 [HTTP响应] 响应已发送给服务器，请求ID: ${message.request_id}`);
           resolve(true)
         })
       })
 
       proxyReq.on('error', (error) => {
+        Logger.error(`❌ [HTTP错误] 连接HA失败: ${error.message}`);
+        Logger.error(`❌ [HTTP错误] 目标: ${hostname}:${config.local_ha_port}${message.url}`);
+        
+        // OAuth请求失败的特殊处理
+        if (message.url && message.url.includes('/auth/')) {
+          Logger.error(`🔐 [OAuth错误] OAuth认证请求失败!`);
+          Logger.error(`🔐 [OAuth错误] 这会导致iOS应用OnboardingAuthError`);
+        }
+        
         reject(error)
       })
 
       proxyReq.on('timeout', () => {
+        Logger.error(`⏰ [HTTP超时] 连接HA超时: ${hostname}:${config.local_ha_port}${message.url}`);
+        
+        if (message.url && message.url.includes('/auth/')) {
+          Logger.error(`🔐 [OAuth超时] OAuth认证请求超时!`);
+        }
+        
         proxyReq.destroy()
         reject(new Error('连接超时'))
       })
