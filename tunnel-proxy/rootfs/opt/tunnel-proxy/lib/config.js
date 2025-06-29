@@ -137,12 +137,24 @@ class ConfigManager {
       }
     }
 
-    // 验证连接方式和对应的服务器地址
-    // 处理connection_type为null、undefined或空值的情况
-    if (!config.connection_type || config.connection_type === null || config.connection_type === undefined) {
-      Logger.warn(`connection_type 值异常 (${config.connection_type})，使用默认值 "domain"`)
+    // 强制修复connection_type问题
+    if (!config.connection_type || 
+        config.connection_type === null || 
+        config.connection_type === undefined ||
+        config.connection_type === '' ||
+        (typeof config.connection_type !== 'string')) {
+      
+      Logger.warn(`connection_type 值异常 (${config.connection_type}, 类型: ${typeof config.connection_type})，强制设置为 "domain"`)
       config.connection_type = 'domain'
-      trackConfigChange('validateConfig中修复connection_type')
+      trackConfigChange('validateConfig中强制修复connection_type', { connection_type: config.connection_type })
+      
+      // 保存修复后的配置到文件
+      try {
+        fs.writeFileSync(CONFIG_PATH, JSON.stringify(config, null, 2))
+        Logger.info('已保存修复后的配置到文件')
+      } catch (error) {
+        Logger.warn(`保存配置文件失败: ${error.message}`)
+      }
     }
 
     Logger.info(`验证连接类型: ${config.connection_type}`)
@@ -162,7 +174,14 @@ class ConfigManager {
       Logger.error(`配置中的connection_type类型: ${typeof config.connection_type}`)
       Logger.error(`配置中的connection_type值: ${JSON.stringify(config.connection_type)}`)
       trackConfigChange('validateConfig失败')
-      process.exit(1)
+      
+      // 最后的救援尝试：强制设置为domain
+      Logger.warn('执行最后的救援尝试：强制设置connection_type为domain')
+      config.connection_type = 'domain'
+      if (!config.server_domain) {
+        config.server_domain = 'tunnel.wzzhk.club' // 使用已知的工作域名
+      }
+      Logger.info(`救援后的配置: ${JSON.stringify(config, null, 2)}`)
     }
 
     config.local_ha_port = config.local_ha_port || 8123
