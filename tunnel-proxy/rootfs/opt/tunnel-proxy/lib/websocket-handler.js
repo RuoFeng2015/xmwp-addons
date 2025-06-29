@@ -384,16 +384,51 @@ class WebSocketHandler {
           headers: responseHeaders,
         }
         
-        this.safeTunnelSend(response, `WebSocket升级响应: ${message.upgrade_id}`)
-        Logger.info(`📤 发送WebSocket升级响应: ${message.upgrade_id}, 状态: 101, Accept: ${websocketAccept}`)
-        Logger.info(`🍎 [iOS修复] 升级响应已发送，检查iOS是否接受`)
-        Logger.debug(`🔧 响应头: ${JSON.stringify(responseHeaders, null, 2)}`)
+        // 立即发送响应，避免任何延迟
+        try {
+          this.safeTunnelSend(response, `WebSocket升级响应: ${message.upgrade_id}`)
+          Logger.info(`📤 发送WebSocket升级响应: ${message.upgrade_id}, 状态: 101, Accept: ${websocketAccept}`)
+          Logger.info(`🍎 [iOS修复] 升级响应已发送，检查iOS是否接受`)
+          Logger.debug(`🔧 响应头: ${JSON.stringify(responseHeaders, null, 2)}`)
+
+          // 立即刷新tunnel client缓冲区
+          setImmediate(() => {
+            if (this.tunnelClient?.socket) {
+              try {
+                if (typeof this.tunnelClient.socket.flush === 'function') {
+                  this.tunnelClient.socket.flush()
+                }
+                if (typeof this.tunnelClient.socket._flush === 'function') {
+                  this.tunnelClient.socket._flush()
+                }
+              } catch (flushError) {
+                Logger.warn(`🍎 [WebSocket] Socket flush失败: ${flushError.message}`)
+              }
+            }
+          })
+        } catch (responseError) {
+          Logger.error(`❌ [WebSocket] 发送升级响应失败: ${responseError.message}`)
+          reject(responseError)
+          return
+        }
 
         // 为iOS添加连接稳定性监控
         this.setupiOSConnectionMonitoring(ws, message.upgrade_id)
         
         // 模拟浏览器行为以提高iOS兼容性
         this.setupBrowserLikeWebSocket(ws, message.upgrade_id, message.headers)
+
+        // 立即发送一个测试ping以确保连接稳定
+        setTimeout(() => {
+          if (ws && ws.readyState === ws.OPEN) {
+            try {
+              ws.ping();
+              Logger.info(`🍎 [iOS连接] 发送初始ping测试连接稳定性`);
+            } catch (pingError) {
+              Logger.warn(`🍎 [iOS连接] 初始ping失败: ${pingError.message}`);
+            }
+          }
+        }, 200); // 200ms后测试连接
 
         // 添加iOS专用的连接监控
         ws.on('message', (data) => {
@@ -460,20 +495,52 @@ class WebSocketHandler {
             Logger.error(`   2. 子协议协商失败`)
             Logger.error(`   3. 扩展协商问题`)
             Logger.error(`   4. 证书或TLS问题`)
+            Logger.error(`   5. iOS Starscream库版本兼容性问题`)
+            
+            // 如果是特定的Starscream错误
+            if (error.message.includes('HTTP')) {
+              Logger.error(`🍎 [Starscream特定] HTTP升级失败，可能是响应格式问题`)
+            }
           }
         })
 
-        resolve(true)
-      })
-
-      ws.on('error', (error) => {
-        Logger.error(`🔴 WebSocket连接错误: ${hostname}:${config.local_ha_port} - ${error.message}`)
-        if (resolved) return
-        resolved = true
-        clearTimeout(connectionTimeout) // 清除超时定时器
-
-        // 记录错误连接用于调试
-        iOSDebugLogger.logConnectionResult(message.upgrade_id, false, error.message, null)
+        // 添加连接关闭的详细日志
+        ws.on('close', (code, reason) => {
+          Logger.info(`🔴 WebSocket连接关闭: ${hostname}, upgrade_id: ${message.upgrade_id}, 代码: ${code}, 原因: ${reason.toString()}`)
+          
+          // iOS特定的关闭代码分析
+          const userAgent = message.headers['user-agent'] || ''
+          if (userAgent.includes('Home Assistant') && userAgent.includes('iOS')) {
+            Logger.info(`🍎 [iOS分析] 连接关闭分析:`)
+            switch (code) {
+              case 1000:
+                Logger.info(`   正常关闭 - 可能是应用切换到后台或网络中断`)
+                break
+              case 1001:
+                Logger.info(`   端点离开 - iOS应用可能关闭了连接`)
+                break
+              case 1002:
+                Logger.error(`   协议错误 - WebSocket帧格式问题`)
+                break
+              case 1003:
+                Logger.error(`   不支持的数据类型`)
+                break
+              case 1006:
+                Logger.error(`   异常关闭 - 没有发送关闭帧（网络问题）`)
+                break
+              case 1011:
+                Logger.error(`   服务器错误`)
+                break
+              default:
+                Logger.info(`   未知关闭代码: ${code}`)
+            }
+            
+            // 如果在认证阶段关闭，提供更多信息
+            if (!authenticationState.successful && authenticationState.required) {
+              Logger.info(`ℹ️  HA在认证过程中关闭连接（可能是auth_invalid消息丢失或网络问题）`)
+            }
+          }
+        })
 
         // 为 iOS 客户端提供更详细的错误信息，特别针对Starscream
         let statusCode = 502
