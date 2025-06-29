@@ -929,11 +929,22 @@ class HANetworkDiscovery {
    */
   async tryKnownHosts() {
     const knownHosts = [
-      'homeassistant.local',    // 最高优先级：官方推荐地址
-      '192.168.6.170',          // 用户已知的具体地址
-      'hassio.local',           // 备用地址
-      '127.0.0.1',              // 本地地址
-      'localhost'               // 本地地址备用
+      // HA Add-on内部网络地址（最高优先级）
+      'homeassistant.local.hass.io',  // HA Add-on官方内部域名
+      'supervisor',                    // HA Supervisor内部地址
+      'homeassistant',                // HA Core容器名
+      'core-ssh',                     // HA SSH Add-on
+      'hassio',                       // HA.io内部地址
+      
+      // Docker内部网络地址
+      '172.30.32.2',                  // HA Docker网络常用地址
+      'host.docker.internal',         // Docker宿主机地址
+      
+      // 传统地址（作为后备）
+      'homeassistant.local',          // mDNS地址
+      '127.0.0.1',                    // 本地回环
+      'localhost',                    // 本地主机
+      '192.168.6.170',                // 原局域网地址（可能无法直达）
     ];
 
     const results = [];
