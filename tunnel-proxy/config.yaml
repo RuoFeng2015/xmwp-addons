@@ -1,9 +1,9 @@
-name: "内网穿透代理"
-version: "1.7.26"
+name: '内网穿透代理'
+version: '1.7.27'
 slug: tunnel-proxy
-description: "基于自建中转服务器的Home Assistant内网穿透解决方案，支持IP和域名连接，修复iOS OAuth认证问题"
-url: "https://github.com/RuoFeng2015/xmwp-addons"
-codenotary: "RuoFeng2015@users.noreply.github.com"
+description: '基于自建中转服务器的Home Assistant内网穿透解决方案，支持IP和域名连接，修复iOS OAuth认证问题'
+url: 'https://github.com/RuoFeng2015/xmwp-addons'
+codenotary: 'RuoFeng2015@users.noreply.github.com'
 arch:
   - aarch64
   - amd64
@@ -17,16 +17,16 @@ map:
   - config:rw
   - ssl:rw
 options:
-  connection_type: "domain"
-  server_host: ""
-  server_domain: "tunnel.wzzhk.club"
+  connection_type: 'domain'
+  server_host: ''
+  server_domain: 'tunnel.wzzhk.club'
   server_port: 3080
   local_ha_port: 8123
-  username: "admin"
-  password: "password"
-  client_id: "ha-client-001"
+  username: 'admin'
+  password: 'password'
+  client_id: 'ha-client-001'
   proxy_port: 9001
-  log_level: "info"
+  log_level: 'info'
 schema:
   connection_type: list(ip|domain)
   server_host: str?
@@ -41,4 +41,4 @@ schema:
 ports:
   9001/tcp: 9001
 ports_description:
-  9001/tcp: "代理服务端口"
+  9001/tcp: '代理服务端口'
