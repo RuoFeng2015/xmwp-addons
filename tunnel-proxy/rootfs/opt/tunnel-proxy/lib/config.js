@@ -3,7 +3,6 @@ const path = require('path')
 const Logger = require('./logger')
 
 // 配置文件路径
-console.log("%c Line:8 🎂 process.env.NODE_ENV", "color:#f5ce50", process.env.NODE_ENV);
 const CONFIG_PATH =
   process.env.NODE_ENV === 'development'
     ? path.join(__dirname, '..', 'config-dev.json')
@@ -16,23 +15,23 @@ let configChangeId = 0
 function trackConfigChange(operation, newValue = null, forceLog = false) {
   configChangeId++
   const timestamp = new Date().toISOString()
-  
+
   // 只在重要操作或强制记录时输出日志
   const importantOperations = ['loadConfig开始', 'validateConfig开始', 'setConfig被调用', '修复connection_type']
   const shouldLog = forceLog || importantOperations.some(op => operation.includes(op))
-  
+
   if (!shouldLog) return
-  
+
   Logger.info(`🔍 [配置追踪 #${configChangeId}] ${timestamp} - ${operation}`)
-  
+
   if (newValue !== null) {
     Logger.info(`🔍 [配置追踪 #${configChangeId}] 新值: ${JSON.stringify(newValue, null, 2)}`)
   }
-  
+
   if (config && config.connection_type !== undefined) {
     Logger.info(`🔍 [配置追踪 #${configChangeId}] 当前connection_type: ${config.connection_type} (${typeof config.connection_type})`)
   }
-  
+
   // 只在出现问题时打印调用栈
   if (operation.includes('修复') || operation.includes('错误')) {
     const stack = new Error().stack
@@ -46,10 +45,10 @@ function trackConfigChange(operation, newValue = null, forceLog = false) {
 class ConfigManager {
   static loadConfig() {
     trackConfigChange('loadConfig开始')
-    
+
     try {
       Logger.info(`尝试加载配置文件: ${CONFIG_PATH}`)
-      
+
       if (!fs.existsSync(CONFIG_PATH)) {
         if (process.env.NODE_ENV === 'development') {
           Logger.warn('开发环境：配置文件不存在，使用默认配置')
@@ -65,30 +64,30 @@ class ConfigManager {
 
       const configData = fs.readFileSync(CONFIG_PATH, 'utf8')
       Logger.info(`原始配置数据: ${configData}`)
-      
+
       const rawConfig = JSON.parse(configData)
       Logger.info(`解析后的原始配置: ${JSON.stringify(rawConfig, null, 2)}`)
-      
+
       // 合并默认配置以确保所有必要字段都存在
       const defaultConfig = this.getDefaultConfig()
       config = { ...defaultConfig, ...rawConfig }
       trackConfigChange('合并默认配置后', config)
-      
+
       // 特别处理可能为null的字段
       if (config.connection_type === null || config.connection_type === undefined) {
         Logger.warn('connection_type为null，使用默认值domain')
         config.connection_type = 'domain'
         trackConfigChange('修复connection_type为domain')
       }
-      
+
       Logger.info('配置文件加载成功')
       Logger.info(`最终合并配置: ${JSON.stringify(config, null, 2)}`)
-      
+
       return config
     } catch (error) {
       Logger.error(`配置文件加载失败: ${error.message}`)
       Logger.error(`配置文件路径: ${CONFIG_PATH}`)
-      
+
       if (process.env.NODE_ENV === 'development') {
         Logger.info('开发环境：使用默认配置继续运行')
         config = this.getDefaultConfig()
@@ -114,16 +113,16 @@ class ConfigManager {
   }
   static validateConfig() {
     trackConfigChange('validateConfig开始')
-    
+
     // 首先检查配置是否已加载
     if (!config || Object.keys(config).length === 0) {
       Logger.error('配置未加载或为空，尝试重新加载...')
       this.loadConfig()
     }
-    
+
     Logger.info('开始验证配置...')
     Logger.info(`当前配置: ${JSON.stringify(config, null, 2)}`)
-    
+
     const required = [
       'server_port',
       'username',
@@ -181,32 +180,32 @@ class ConfigManager {
       this.loadConfig()
       this.validateConfig()
     }
-    
+
     // 检查关键字段
     if (config.connection_type === null || config.connection_type === undefined) {
       Logger.warn(`🔧 [配置访问] connection_type异常(${config.connection_type})，重置为domain`)
       config.connection_type = 'domain'
       trackConfigChange('getConfig中修复connection_type', null, true)
     }
-    
+
     return config
   }
   static setConfig(newConfig) {
     trackConfigChange('setConfig被调用', newConfig)
-    
+
     Logger.info(`🔧 [配置更新] 正在更新配置`)
     Logger.info(`🔧 [配置更新] 原配置: ${JSON.stringify(config, null, 2)}`)
     Logger.info(`🔧 [配置更新] 新配置: ${JSON.stringify(newConfig, null, 2)}`)
-    
+
     config = { ...config, ...newConfig }
-    
+
     // 特别检查connection_type
     if (config.connection_type === null || config.connection_type === undefined) {
       Logger.warn(`🔧 [配置更新] connection_type在更新后变为${config.connection_type}，重置为domain`)
       config.connection_type = 'domain'
       trackConfigChange('setConfig中修复connection_type')
     }
-    
+
     Logger.info(`🔧 [配置更新] 最终配置: ${JSON.stringify(config, null, 2)}`)
   }
 
