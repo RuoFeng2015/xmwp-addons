@@ -89,7 +89,12 @@ class WebSocketHandler {
       if (isBinaryMessage) {
         // 二进制消息直接发送
         Logger.info(`📦 发送二进制WebSocket数据到HA: ${upgrade_id}, 大小: ${binaryData.length} bytes`)
-        wsConnection.socket.send(binaryData)
+        // 检查WebSocket状态
+        if (wsConnection.socket.readyState === wsConnection.socket.OPEN) {
+          wsConnection.socket.send(binaryData)
+        } else {
+          Logger.warn(`⚠️ WebSocket连接未打开，无法发送二进制数据: ${upgrade_id}, 状态: ${wsConnection.socket.readyState}`)
+        }
       } else {
         // 文本消息，尝试解码为UTF-8字符串
         const stringData = binaryData.toString('utf8')
@@ -123,11 +128,19 @@ class WebSocketHandler {
           }
 
           // 发送文本数据
-          wsConnection.socket.send(stringData)
+          if (wsConnection.socket.readyState === wsConnection.socket.OPEN) {
+            wsConnection.socket.send(stringData)
+          } else {
+            Logger.warn(`⚠️ WebSocket连接未打开，无法发送文本数据: ${upgrade_id}, 状态: ${wsConnection.socket.readyState}`)
+          }
         } else {
           // UTF-8解码失败，当作二进制数据处理
           Logger.warn(`⚠️ UTF-8解码失败，作为二进制数据发送: ${upgrade_id}`)
-          wsConnection.socket.send(binaryData)
+          if (wsConnection.socket.readyState === wsConnection.socket.OPEN) {
+            wsConnection.socket.send(binaryData)
+          } else {
+            Logger.warn(`⚠️ WebSocket连接未打开，无法发送二进制数据: ${upgrade_id}, 状态: ${wsConnection.socket.readyState}`)
+          }
         }
       }
     } catch (error) {
@@ -143,11 +156,37 @@ class WebSocketHandler {
     const { upgrade_id } = message
     const wsConnection = this.wsConnections.get(upgrade_id)
 
-    if (wsConnection) {
-      if (wsConnection.socket) {
-        wsConnection.socket.destroy()
+    if (wsConnection && wsConnection.socket) {
+      try {
+        // 检查socket状态和可用的关闭方法
+        const ws = wsConnection.socket
+        
+        if (ws.readyState === ws.OPEN || ws.readyState === ws.CONNECTING) {
+          Logger.info(`🔄 正常关闭WebSocket连接: ${upgrade_id}`)
+          ws.close(1000, 'Normal closure')
+        } else if (ws.readyState === ws.CLOSING) {
+          Logger.info(`⏳ WebSocket正在关闭中: ${upgrade_id}`)
+        } else {
+          Logger.info(`🔴 WebSocket已关闭: ${upgrade_id}, 状态: ${ws.readyState}`)
+        }
+        
+        // 使用正确的终止方法
+        if (typeof ws.terminate === 'function') {
+          setTimeout(() => {
+            try {
+              ws.terminate()
+            } catch (termError) {
+              Logger.warn(`⚠️ WebSocket终止警告: ${termError.message}`)
+            }
+          }, 1000)
+        }
+      } catch (error) {
+        Logger.error(`❌ WebSocket关闭处理错误: ${error.message}`)
       }
+      
       this.wsConnections.delete(upgrade_id)
+    } else {
+      Logger.warn(`⚠️ 尝试关闭不存在的WebSocket连接: ${upgrade_id}`)
     }
   }
 
@@ -313,7 +352,7 @@ class WebSocketHandler {
             },
             error: 'WebSocket connection timeout'
           }
-          this.tunnelClient.send(timeoutResponse)
+          this.safeTunnelSend(timeoutResponse, `WebSocket连接超时: ${message.upgrade_id}`)
           
           try {
             ws.terminate()
@@ -359,7 +398,7 @@ class WebSocketHandler {
           headers: responseHeaders,
         }
         
-        this.tunnelClient.send(response)
+        this.safeTunnelSend(response, `WebSocket升级响应: ${message.upgrade_id}`)
         Logger.info(`📤 发送WebSocket升级响应: ${message.upgrade_id}, 状态: 101, Accept: ${websocketAccept}`)
         Logger.info(`🍎 [iOS修复] 升级响应已发送，检查iOS是否接受`)
         Logger.debug(`🔧 响应头: ${JSON.stringify(responseHeaders, null, 2)}`)
@@ -411,7 +450,7 @@ class WebSocketHandler {
               Logger.info(`🔐 准备发送认证消息: ${messageType} - ${message.upgrade_id}`)
               this.handleiOSAuthMessage(ws, response, messageType, message.upgrade_id, authenticationState)
             } else {
-              this.tunnelClient.send(response)
+              this.safeTunnelSend(response, `WebSocket消息转发: ${message.upgrade_id}`)
               Logger.info(`📤 已转发WebSocket消息: ${message.upgrade_id}`)
             }
           } catch (error) {
@@ -494,7 +533,7 @@ class WebSocketHandler {
         }
         
         Logger.error(`📤 发送WebSocket错误响应: ${statusCode} - ${errorMessage} (${errorCode})`)
-        this.tunnelClient.send(errorResponse)
+        this.safeTunnelSend(errorResponse, `WebSocket错误响应: ${statusCode}`)
         reject(error)
       })
 
@@ -616,7 +655,7 @@ class WebSocketHandler {
           headers: responseHeaders,
         }
         
-        this.tunnelClient.send(response)
+        this.safeTunnelSend(response, `iOS兼容模式WebSocket升级响应: ${message.upgrade_id}`)
         Logger.info(`📤 发送iOS兼容模式WebSocket升级响应: ${message.upgrade_id}`)
 
         // iOS消息处理
@@ -626,7 +665,7 @@ class WebSocketHandler {
             upgrade_id: message.upgrade_id,
             data: data.toString('base64'),
           }
-          this.tunnelClient.send(response)
+          this.safeTunnelSend(response, `iOS兼容模式WebSocket消息: ${message.upgrade_id}`)
         })
 
         resolve(true)
@@ -655,7 +694,7 @@ class WebSocketHandler {
    * 发送认证消息
    */
   sendAuthMessage(response, messageType, upgradeId) {
-    const sendSuccess = this.tunnelClient.send(response)
+    const sendSuccess = this.safeTunnelSend(response, `认证消息: ${messageType} - ${upgradeId}`)
     if (!sendSuccess) {
       Logger.error(`❌ 认证消息发送失败: ${upgradeId}`)
       return
@@ -727,7 +766,7 @@ class WebSocketHandler {
     }
 
     try {
-      this.tunnelClient.send(response)
+      this.safeTunnelSend(response, `WebSocket连接关闭通知: ${upgrade_id}`)
       Logger.info(`📤 通知服务器WebSocket连接关闭: ${upgrade_id}`)
     } catch (error) {
       Logger.error(`❌ 发送关闭通知失败: ${error.message}`)
@@ -759,7 +798,7 @@ class WebSocketHandler {
     }
 
     Logger.error(`📤 发送WebSocket升级错误响应: ${message.upgrade_id} - ${errorResponse.error}`)
-    this.tunnelClient.send(errorResponse)
+    this.safeTunnelSend(errorResponse, `WebSocket升级错误: ${message.upgrade_id}`)
   }
 
   /**
@@ -1026,7 +1065,7 @@ class WebSocketHandler {
       // 为iOS添加额外的确保措施
       try {
         // 立即发送，不缓冲
-        const sendResult = this.tunnelClient.send(response)
+        const sendResult = this.safeTunnelSend(response, `iOS认证消息: ${upgradeId}`)
         Logger.info(`🍎 [iOS认证] 认证消息发送状态: ${sendResult}`)
         
         // 强制刷新socket缓冲区
@@ -1142,6 +1181,35 @@ class WebSocketHandler {
         Logger.error(`🍎 [浏览器模拟] 异常关闭，可能是网络或协议问题`)
       }
     })
+  }
+
+  /**
+   * 安全地发送数据到tunnel client，避免EPIPE错误
+   */
+  safeTunnelSend(data, context = '') {
+    try {
+      if (!this.tunnelClient) {
+        Logger.warn(`⚠️ TunnelClient不存在，无法发送数据: ${context}`)
+        return false
+      }
+
+      // 检查tunnel client的连接状态
+      if (!this.tunnelClient.isConnected || !this.tunnelClient.socket) {
+        Logger.warn(`⚠️ TunnelClient连接未建立，无法发送数据: ${context}`)
+        return false
+      }
+
+      // 检查socket状态
+      if (this.tunnelClient.socket.destroyed || this.tunnelClient.socket.readyState !== 'open') {
+        Logger.warn(`⚠️ TunnelClient socket异常，无法发送数据: ${context}, destroyed: ${this.tunnelClient.socket.destroyed}`)
+        return false
+      }
+
+      return this.tunnelClient.send(data)
+    } catch (error) {
+      Logger.error(`❌ 发送数据到tunnel client失败: ${error.message}, 上下文: ${context}`)
+      return false
+    }
   }
 }
 
