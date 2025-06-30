@@ -182,19 +182,28 @@ class HttpProxyHandler {
         proxyRes.on('end', () => {
           Logger.info(`📤 [HTTP响应] 响应完成: ${responseBody.length} bytes, 状态: ${proxyRes.statusCode}`);
           
+          // 首先创建增强的响应头对象
+          const enhancedHeaders = { ...proxyRes.headers };
+          
+          // 检查是否需要添加CORS头
+          const needsCorsHeaders = this.shouldAddCorsHeaders(message, proxyRes);
+          if (needsCorsHeaders) {
+            this.addCorsHeaders(enhancedHeaders, message);
+          }
+          
           // 详细的 CORS 和缓存头检查
           const corsHeaders = {
-            'access-control-allow-origin': proxyRes.headers['access-control-allow-origin'],
-            'access-control-allow-methods': proxyRes.headers['access-control-allow-methods'],
-            'access-control-allow-headers': proxyRes.headers['access-control-allow-headers'],
-            'access-control-allow-credentials': proxyRes.headers['access-control-allow-credentials']
+            'access-control-allow-origin': enhancedHeaders['access-control-allow-origin'],
+            'access-control-allow-methods': enhancedHeaders['access-control-allow-methods'],
+            'access-control-allow-headers': enhancedHeaders['access-control-allow-headers'],
+            'access-control-allow-credentials': enhancedHeaders['access-control-allow-credentials']
           };
           
           const cacheHeaders = {
-            'cache-control': proxyRes.headers['cache-control'],
-            'etag': proxyRes.headers['etag'],
-            'last-modified': proxyRes.headers['last-modified'],
-            'expires': proxyRes.headers['expires']
+            'cache-control': enhancedHeaders['cache-control'],
+            'etag': enhancedHeaders['etag'],
+            'last-modified': enhancedHeaders['last-modified'],
+            'expires': enhancedHeaders['expires']
           };
           
           // 检查是否有CORS相关头
@@ -327,15 +336,6 @@ class HttpProxyHandler {
             }
           }
         }
-
-          // 增强响应头处理 - 为OAuth和API请求添加必要的CORS头
-          const enhancedHeaders = { ...proxyRes.headers };
-          
-          // 检查是否需要添加CORS头
-          const needsCorsHeaders = this.shouldAddCorsHeaders(message, proxyRes);
-          if (needsCorsHeaders) {
-            this.addCorsHeaders(enhancedHeaders, message);
-          }
 
           const response = {
             type: 'proxy_response',

@@ -1,7 +1,7 @@
 name: '内网穿透代理'
-version: '1.8.1'
+version: '1.8.2'
 slug: tunnel-proxy
-description: '基于自建中转服务器的Home Assistant内网穿透解决方案，支持IP和域名连接，彻底修复iOS OAuth CORS问题(自动添加必要CORS头，修复配置加载)'
+description: '基于自建中转服务器的Home Assistant内网穿透解决方案，支持IP和域名连接，彻底修复iOS OAuth CORS问题(修复CORS头添加变量作用域错误)'
 url: 'https://github.com/RuoFeng2015/xmwp-addons'
 codenotary: 'RuoFeng2015@users.noreply.github.com'
 arch:
