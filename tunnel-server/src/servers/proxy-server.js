@@ -53,10 +53,24 @@ class ProxyServer {
                 const bodyString = ctx.rawBody.toString();
                 Logger.info(`🔐 [服务器收到OAuth] 请求体内容: ${bodyString}`);
                 
-                // 验证OAuth参数
-                const hasGrantType = bodyString.includes('grant_type=');
-                const hasCode = bodyString.includes('code=');
-                Logger.info(`🔐 [服务器OAuth验证] grant_type: ${hasGrantType}, code: ${hasCode}`);
+                // 检查OAuth请求类型
+                const isTokenExchange = bodyString.includes('grant_type=authorization_code');
+                const isTokenRevoke = bodyString.includes('action=revoke');
+                const isTokenRefresh = bodyString.includes('grant_type=refresh_token');
+                
+                if (isTokenExchange) {
+                  Logger.info(`🔐 [服务器OAuth类型] Token交换请求 (正常认证)`);
+                  const hasGrantType = bodyString.includes('grant_type=');
+                  const hasCode = bodyString.includes('code=');
+                  Logger.info(`🔐 [服务器OAuth验证] grant_type: ${hasGrantType}, code: ${hasCode}`);
+                } else if (isTokenRevoke) {
+                  Logger.info(`🔐 [服务器OAuth类型] Token撤销请求 (iOS清理旧token)`);
+                  Logger.info(`🔐 [服务器OAuth说明] 这是正常行为，HA会返回空响应`);
+                } else if (isTokenRefresh) {
+                  Logger.info(`🔐 [服务器OAuth类型] Token刷新请求`);
+                } else {
+                  Logger.warn(`🔐 [服务器OAuth类型] 未知类型的OAuth请求`);
+                }
               } else {
                 Logger.error(`🔐 [服务器OAuth错误] ❌ OAuth请求体为空!`);
               }

@@ -130,15 +130,43 @@ class HttpProxyHandler {
           
           // 专门针对token请求的分析
           if (message.url.includes('/auth/token')) {
-            Logger.info(`🔐 [OAuth Token响应] *** Token交换响应分析 ***`);
+            Logger.info(`🔐 [OAuth Token响应] *** Token请求响应分析 ***`);
             Logger.info(`🔐 [OAuth Token响应] Content-Type: ${proxyRes.headers['content-type'] || '未设置'}`);
             Logger.info(`🔐 [OAuth Token响应] Content-Length: ${proxyRes.headers['content-length'] || '未设置'}`);
             
+            // 检查请求类型以确定是否应该有响应体
+            let requestBodyContent = '';
+            try {
+              if (message.body) {
+                if (typeof message.body === 'string' && message.body.match(/^[A-Za-z0-9+/]+=*$/)) {
+                  requestBodyContent = Buffer.from(message.body, 'base64').toString();
+                } else {
+                  requestBodyContent = message.body.toString();
+                }
+              }
+            } catch (e) {
+              // 忽略解析错误
+            }
+            
+            const isTokenRevoke = requestBodyContent.includes('action=revoke');
+            const isTokenExchange = requestBodyContent.includes('grant_type=authorization_code');
+            
             if (proxyRes.statusCode === 200) {
               if (!proxyRes.headers['content-length'] || proxyRes.headers['content-length'] === '0') {
-                Logger.error(`🔐 [OAuth Token响应] ❌ 错误: 成功状态码但响应体为空!`);
-                Logger.error(`🔐 [OAuth Token响应] 这会导致iOS应用OnboardingAuthError`);
+                if (isTokenRevoke) {
+                  Logger.info(`🔐 [OAuth Token响应] ✅ Token撤销请求正常 - 空响应是预期的`);
+                  Logger.info(`🔐 [OAuth Token响应] iOS应用撤销旧token，HA正确返回空响应`);
+                } else if (isTokenExchange) {
+                  Logger.error(`🔐 [OAuth Token响应] ❌ 错误: Token交换请求响应体为空!`);
+                  Logger.error(`🔐 [OAuth Token响应] 这会导致iOS应用OnboardingAuthError`);
+                } else {
+                  Logger.warn(`🔐 [OAuth Token响应] ⚠️ 警告: 未知token请求类型返回空响应`);
+                }
+              } else {
+                Logger.info(`🔐 [OAuth Token响应] ✅ 响应包含内容，长度: ${proxyRes.headers['content-length']} bytes`);
               }
+            } else {
+              Logger.warn(`🔐 [OAuth Token响应] ⚠️ 非200状态码: ${proxyRes.statusCode}`);
             }
           }
         }
@@ -208,11 +236,24 @@ class HttpProxyHandler {
                 const bodyString = bodyData.toString();
                 Logger.info(`🔐 [OAuth请求体] 解码后内容: ${bodyString}`);
                 
-                // 验证OAuth参数
-                if (bodyString.includes('grant_type=') && bodyString.includes('code=')) {
-                  Logger.info(`🔐 [OAuth请求体] ✅ 包含必要的OAuth参数`);
+                // 检查请求类型
+                const isTokenExchange = bodyString.includes('grant_type=authorization_code');
+                const isTokenRevoke = bodyString.includes('action=revoke');
+                const isTokenRefresh = bodyString.includes('grant_type=refresh_token');
+                
+                if (isTokenExchange) {
+                  Logger.info(`🔐 [OAuth请求体] ✅ Token交换请求 - 包含正确的OAuth参数`);
+                  if (bodyString.includes('grant_type=') && bodyString.includes('code=')) {
+                    Logger.info(`🔐 [OAuth请求体] ✅ 包含必要的OAuth参数 (grant_type + code)`);
+                  } else {
+                    Logger.warn(`🔐 [OAuth请求体] ⚠️ 警告: Token交换请求可能缺少必要参数`);
+                  }
+                } else if (isTokenRevoke) {
+                  Logger.info(`🔐 [OAuth请求体] ✅ Token撤销请求 - iOS应用清理旧token`);
+                } else if (isTokenRefresh) {
+                  Logger.info(`🔐 [OAuth请求体] ✅ Token刷新请求`);
                 } else {
-                  Logger.warn(`🔐 [OAuth请求体] ⚠️ 警告: 可能缺少必要的OAuth参数`);
+                  Logger.warn(`🔐 [OAuth请求体] ⚠️ 警告: 未知的OAuth请求类型`);
                 }
               }
             } catch (e) {
@@ -472,15 +513,28 @@ class HttpProxyHandler {
       
       Logger.info(`🔐 [OAuth修复] 解析的请求体: ${bodyContent}`);
       
-      // 验证必要的OAuth参数
-      const hasGrantType = bodyContent.includes('grant_type=');
-      const hasCode = bodyContent.includes('code=');
-      const hasClientId = bodyContent.includes('client_id=');
+      // 检查请求类型
+      const isTokenExchange = bodyContent.includes('grant_type=authorization_code');
+      const isTokenRevoke = bodyContent.includes('action=revoke');
+      const isTokenRefresh = bodyContent.includes('grant_type=refresh_token');
       
-      Logger.info(`🔐 [OAuth验证] grant_type: ${hasGrantType}, code: ${hasCode}, client_id: ${hasClientId}`);
-      
-      if (!hasGrantType || !hasCode) {
-        Logger.error(`🔐 [OAuth错误] 缺少必要的OAuth参数! grant_type: ${hasGrantType}, code: ${hasCode}`);
+      if (isTokenExchange) {
+        Logger.info(`🔐 [OAuth类型] Token交换请求 (正常的OAuth认证流程)`);
+        const hasGrantType = bodyContent.includes('grant_type=');
+        const hasCode = bodyContent.includes('code=');
+        const hasClientId = bodyContent.includes('client_id=');
+        Logger.info(`🔐 [OAuth验证] grant_type: ${hasGrantType}, code: ${hasCode}, client_id: ${hasClientId}`);
+        
+        if (!hasGrantType || !hasCode) {
+          Logger.error(`🔐 [OAuth错误] Token交换请求缺少必要参数! grant_type: ${hasGrantType}, code: ${hasCode}`);
+        }
+      } else if (isTokenRevoke) {
+        Logger.info(`🔐 [OAuth类型] Token撤销请求 (iOS应用清理旧token)`);
+        Logger.info(`🔐 [OAuth说明] 这是正常行为，HA会返回空响应(200状态码)`);
+      } else if (isTokenRefresh) {
+        Logger.info(`🔐 [OAuth类型] Token刷新请求`);
+      } else {
+        Logger.warn(`🔐 [OAuth警告] 未知的OAuth请求类型: ${bodyContent.substring(0, 100)}`);
       }
       
       // 确保Content-Length正确设置
