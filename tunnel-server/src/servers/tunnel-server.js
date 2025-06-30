@@ -323,7 +323,28 @@ class TunnelServer {
             Logger.info(`🔐 [服务器OAuth响应] ✅ Authorization Code交换响应已发送`);
             
             // 验证响应内容
-            const responseText = responseBody.toString();
+            let responseText = responseBody.toString();
+            
+            // 检查响应头以确定是否需要解压缩
+            if (headers && headers['content-encoding']) {
+              Logger.info(`🔐 [服务器OAuth响应] 检测到压缩响应: ${headers['content-encoding']}`);
+              
+              try {
+                const zlib = require('zlib');
+                if (headers['content-encoding'] === 'gzip') {
+                  responseText = zlib.gunzipSync(responseBody).toString();
+                } else if (headers['content-encoding'] === 'deflate') {
+                  responseText = zlib.inflateSync(responseBody).toString();
+                } else if (headers['content-encoding'] === 'br') {
+                  responseText = zlib.brotliDecompressSync(responseBody).toString();
+                }
+                Logger.info(`🔐 [服务器OAuth响应] 解压缩成功!`);
+              } catch (decompressError) {
+                Logger.error(`🔐 [服务器OAuth错误] 解压缩失败: ${decompressError.message}`);
+                responseText = responseBody.toString(); // 回退到原始数据
+              }
+            }
+            
             const hasAccessToken = responseText.includes('access_token');
             const hasRefreshToken = responseText.includes('refresh_token');
             

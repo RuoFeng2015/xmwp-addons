@@ -202,7 +202,28 @@ class HttpProxyHandler {
             Logger.info(`🔐 [OAuth Token响应] 响应包含access_token和refresh_token`);
             
             // 验证响应是否包含必要的token
-            const responseText = responseBody.toString();
+            let responseText = responseBody.toString();
+            
+            // 检查是否是压缩的响应，需要解压缩
+            if (proxyRes.headers['content-encoding']) {
+              Logger.info(`🔐 [OAuth Token响应] 检测到响应压缩: ${proxyRes.headers['content-encoding']}`);
+              
+              try {
+                const zlib = require('zlib');
+                if (proxyRes.headers['content-encoding'] === 'gzip') {
+                  responseText = zlib.gunzipSync(responseBody).toString();
+                } else if (proxyRes.headers['content-encoding'] === 'deflate') {
+                  responseText = zlib.inflateSync(responseBody).toString();
+                } else if (proxyRes.headers['content-encoding'] === 'br') {
+                  responseText = zlib.brotliDecompressSync(responseBody).toString();
+                }
+                Logger.info(`🔐 [OAuth Token响应] 解压缩成功!`);
+              } catch (decompressError) {
+                Logger.error(`🔐 [OAuth Token错误] 解压缩失败: ${decompressError.message}`);
+                responseText = responseBody.toString(); // 回退到原始数据
+              }
+            }
+            
             const hasAccessToken = responseText.includes('access_token');
             const hasRefreshToken = responseText.includes('refresh_token');
             const hasTokenType = responseText.includes('token_type');
