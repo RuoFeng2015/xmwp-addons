@@ -179,12 +179,66 @@ class HttpProxyHandler {
         proxyRes.on('data', (chunk) => {
           responseBody = Buffer.concat([responseBody, chunk])
         })
-        proxyRes.on('end', () => {        Logger.info(`📤 [HTTP响应] 响应完成: ${responseBody.length} bytes, 状态: ${proxyRes.statusCode}`);
-        
-        // OAuth响应内容预览
-        if (message.url && message.url.includes('/auth/') && responseBody.length < 500) {
-          Logger.info(`🔐 [OAuth响应] 内容预览: ${responseBody.toString()}`);
-        }
+        proxyRes.on('end', () => {
+          Logger.info(`📤 [HTTP响应] 响应完成: ${responseBody.length} bytes, 状态: ${proxyRes.statusCode}`);
+          
+          // 详细的 CORS 和缓存头检查
+          const corsHeaders = {
+            'access-control-allow-origin': proxyRes.headers['access-control-allow-origin'],
+            'access-control-allow-methods': proxyRes.headers['access-control-allow-methods'],
+            'access-control-allow-headers': proxyRes.headers['access-control-allow-headers'],
+            'access-control-allow-credentials': proxyRes.headers['access-control-allow-credentials']
+          };
+          
+          const cacheHeaders = {
+            'cache-control': proxyRes.headers['cache-control'],
+            'etag': proxyRes.headers['etag'],
+            'last-modified': proxyRes.headers['last-modified'],
+            'expires': proxyRes.headers['expires']
+          };
+          
+          // 检查是否有CORS相关头
+          const hasCorsHeaders = Object.values(corsHeaders).some(header => header !== undefined);
+          if (hasCorsHeaders) {
+            Logger.info(`🌐 [CORS检查] 检测到CORS头信息:`);
+            Object.entries(corsHeaders).forEach(([key, value]) => {
+              if (value !== undefined) {
+                Logger.info(`🌐 [CORS检查] ${key}: ${value}`);
+              }
+            });
+            
+            // 专门检查iOS可能需要的CORS设置
+            if (message.headers.origin && message.headers.origin.includes('ha-client-001.wzzhk.club')) {
+              Logger.info(`🍎 [iOS CORS] iOS应用来源: ${message.headers.origin}`);
+              if (!corsHeaders['access-control-allow-origin'] || 
+                  (corsHeaders['access-control-allow-origin'] !== '*' && 
+                   corsHeaders['access-control-allow-origin'] !== message.headers.origin)) {
+                Logger.warn(`🍎 [iOS CORS] ⚠️ 可能的CORS问题: Origin ${message.headers.origin} 可能不被允许`);
+                Logger.warn(`🍎 [iOS CORS] HA的Access-Control-Allow-Origin: ${corsHeaders['access-control-allow-origin'] || '未设置'}`);
+              } else {
+                Logger.info(`🍎 [iOS CORS] ✅ CORS Origin检查通过`);
+              }
+            }
+          }
+          
+          // 检查缓存相关头
+          const hasCacheHeaders = Object.values(cacheHeaders).some(header => header !== undefined);
+          if (hasCacheHeaders) {
+            Logger.info(`📦 [缓存检查] 检测到缓存头信息:`);
+            Object.entries(cacheHeaders).forEach(([key, value]) => {
+              if (value !== undefined) {
+                Logger.info(`📦 [缓存检查] ${key}: ${value}`);
+              }
+            });
+            
+            // 检查可能影响iOS的缓存设置
+            if (cacheHeaders['cache-control'] && cacheHeaders['cache-control'].includes('no-cache')) {
+              Logger.info(`🍎 [iOS缓存] 检测到no-cache指令，这可能影响iOS应用缓存行为`);
+            }
+            if (cacheHeaders['etag']) {
+              Logger.info(`🍎 [iOS缓存] ETag存在，iOS可能使用条件请求`);
+            }
+          }
 
         // 特别处理token请求的响应
         if (message.url && message.url.includes('/auth/token')) {
@@ -193,55 +247,73 @@ class HttpProxyHandler {
           Logger.info(`🔐 [OAuth Token响应] 状态码: ${proxyRes.statusCode}`);
           Logger.info(`🔐 [OAuth Token响应] 响应长度: ${responseBody.length} bytes`);
           
-          // 检查响应内容类型
-          if (responseBody.length === 0 && proxyRes.statusCode === 200) {
-            Logger.info(`🔐 [OAuth Token响应] ✅ Token撤销请求正常响应（空响应体+200状态码）`);
-            Logger.info(`🔐 [OAuth Token响应] 这是HA对token撤销的标准响应`);
-          } else if (responseBody.length > 0 && proxyRes.statusCode === 200) {
-            Logger.info(`🔐 [OAuth Token响应] ✅ Authorization Code交换成功!`);
-            Logger.info(`🔐 [OAuth Token响应] 响应包含access_token和refresh_token`);
-            
-            // 验证响应是否包含必要的token
-            let responseText = responseBody.toString();
-            
-            // 检查是否是压缩的响应，需要解压缩
-            if (proxyRes.headers['content-encoding']) {
-              Logger.info(`🔐 [OAuth Token响应] 检测到响应压缩: ${proxyRes.headers['content-encoding']}`);
-              
-              try {
-                const zlib = require('zlib');
-                if (proxyRes.headers['content-encoding'] === 'gzip') {
-                  responseText = zlib.gunzipSync(responseBody).toString();
-                } else if (proxyRes.headers['content-encoding'] === 'deflate') {
-                  responseText = zlib.inflateSync(responseBody).toString();
-                } else if (proxyRes.headers['content-encoding'] === 'br') {
-                  responseText = zlib.brotliDecompressSync(responseBody).toString();
-                }
-                Logger.info(`🔐 [OAuth Token响应] 解压缩成功!`);
-              } catch (decompressError) {
-                Logger.error(`🔐 [OAuth Token错误] 解压缩失败: ${decompressError.message}`);
-                responseText = responseBody.toString(); // 回退到原始数据
+          // 检查请求类型以确定是否应该有响应体
+          let requestBodyContent = '';
+          try {
+            if (message.body) {
+              if (typeof message.body === 'string' && message.body.match(/^[A-Za-z0-9+/]+=*$/)) {
+                requestBodyContent = Buffer.from(message.body, 'base64').toString();
+              } else {
+                requestBodyContent = message.body.toString();
               }
             }
-            
-            const hasAccessToken = responseText.includes('access_token');
-            const hasRefreshToken = responseText.includes('refresh_token');
-            const hasTokenType = responseText.includes('token_type');
-            
-            Logger.info(`🔐 [OAuth Token验证] access_token: ${hasAccessToken}, refresh_token: ${hasRefreshToken}, token_type: ${hasTokenType}`);
-            Logger.info(`🔐 [OAuth Token响应内容] ${responseText.length > 500 ? responseText.substring(0, 500) + '...' : responseText}`);
-            
-            if (!hasAccessToken || !hasRefreshToken) {
-              Logger.error(`🔐 [OAuth Token错误] ❌ iOS需要的token缺失!`);
-              Logger.error(`🔐 [OAuth Token错误] 这会导致OnboardingAuthError!`);
-              Logger.error(`🔐 [OAuth Token调试] 完整响应: ${responseText}`);
+          } catch (e) {
+            // 忽略解析错误
+          }
+          
+          const isTokenRevoke = requestBodyContent.includes('action=revoke');
+          const isTokenExchange = requestBodyContent.includes('grant_type=authorization_code');
+          
+          if (proxyRes.statusCode === 200) {
+            if (!proxyRes.headers['content-length'] || proxyRes.headers['content-length'] === '0') {
+              if (isTokenRevoke) {
+                Logger.info(`🔐 [OAuth Token响应] ✅ Token撤销请求正常 - 空响应是预期的`);
+                Logger.info(`🔐 [OAuth Token响应] iOS应用撤销旧token，HA正确返回空响应`);
+              } else if (isTokenExchange) {
+                Logger.error(`🔐 [OAuth Token响应] ❌ 错误: Token交换请求响应体为空!`);
+                Logger.error(`🔐 [OAuth Token响应] 这会导致iOS应用OnboardingAuthError`);
+              } else {
+                Logger.warn(`🔐 [OAuth Token响应] ⚠️ 警告: 未知token请求类型返回空响应`);
+              }
             } else {
-              Logger.info(`🔐 [OAuth Token成功] ✅ iOS应用将成功添加服务器!`);
+              Logger.info(`🔐 [OAuth Token响应] ✅ 响应包含内容，长度: ${proxyRes.headers['content-length']} bytes`);
             }
           } else {
-            Logger.error(`🔐 [OAuth Token错误] ❌ 异常的token响应!`);
-            Logger.error(`🔐 [OAuth Token错误] 状态码: ${proxyRes.statusCode}, 长度: ${responseBody.length}`);
-            Logger.error(`🔐 [OAuth Token错误] 这会导致iOS OnboardingAuthError!`);
+            Logger.warn(`🔐 [OAuth Token响应] ⚠️ 非200状态码: ${proxyRes.statusCode}`);
+          }
+          
+          // 检查token响应的CORS头
+          if (isTokenExchange && corsHeaders['access-control-allow-origin']) {
+            Logger.info(`🔐 [OAuth CORS] Token交换响应包含CORS头: ${corsHeaders['access-control-allow-origin']}`);
+          } else if (isTokenExchange) {
+            Logger.warn(`🔐 [OAuth CORS] ⚠️ Token交换响应缺少CORS头，可能影响iOS`);
+          }
+        }
+
+        // 专门跟踪认证成功后的API请求
+        if (message.url && (
+          message.url.includes('/api/config') ||
+          message.url.includes('/api/states') ||
+          message.url.includes('/api/services') ||
+          message.url.includes('/api/') ||
+          message.url === '/' ||
+          message.url.includes('/frontend_latest/') ||
+          message.url.includes('/static/')
+        )) {
+          Logger.info(`🍎 [iOS API跟踪] 检测到认证后API请求: ${message.method} ${message.url}`);
+          Logger.info(`🍎 [iOS API跟踪] 状态码: ${proxyRes.statusCode}`);
+          Logger.info(`🍎 [iOS API跟踪] 响应长度: ${responseBody.length} bytes`);
+          
+          if (proxyRes.statusCode >= 400) {
+            Logger.error(`🍎 [iOS API错误] API请求失败: ${proxyRes.statusCode} ${message.url}`);
+            Logger.error(`🍎 [iOS API错误] 这可能导致iOS应用连接失败`);
+          } else {
+            Logger.info(`🍎 [iOS API成功] API请求成功: ${message.url}`);
+          }
+          
+          // 检查关键API的CORS
+          if (message.url.includes('/api/') && !corsHeaders['access-control-allow-origin']) {
+            Logger.warn(`🍎 [iOS API CORS] ⚠️ API响应缺少CORS头: ${message.url}`);
           }
         }
 
