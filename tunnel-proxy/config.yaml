@@ -1,7 +1,7 @@
 name: '内网穿透代理'
-version: '1.9.1'
+version: '1.9.2'
 slug: tunnel-proxy
-description: '基于自建中转服务器的Home Assistant内网穿透解决方案，增强iOS调试功能，支持App行为监控、API健康检查、问题自动诊断'
+description: '基于自建中转服务器的Home Assistant内网穿透解决方案，完整iOS问题诊断系统，支持综合问题检测、App内部分析、修复建议生成'
 url: 'https://github.com/RuoFeng2015/xmwp-addons'
 codenotary: 'RuoFeng2015@users.noreply.github.com'
 arch:

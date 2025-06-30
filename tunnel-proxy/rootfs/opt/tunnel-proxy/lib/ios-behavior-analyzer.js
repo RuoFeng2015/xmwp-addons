@@ -1,4 +1,5 @@
 const Logger = require('./logger');
+const IOSComprehensiveDiagnostic = require('./ios-comprehensive-diagnostic');
 
 /**
  * iOS Home Assistant App 行为分析器
@@ -232,6 +233,22 @@ class IOSBehaviorAnalyzer {
     }
 
     Logger.info(`💡 [诊断建议] *** 建议结束 ***`);
+    
+    // 执行综合诊断
+    setTimeout(() => {
+      const requestTimeline = this.sessionData.apiRequests.map(req => ({
+        timestamp: new Date(req.timestamp).toISOString(),
+        type: this.categorizeRequest(req.url),
+        url: req.url,
+        method: req.method
+      }));
+      
+      IOSComprehensiveDiagnostic.performFullDiagnosis(
+        requestTimeline, 
+        null, // accessToken 会在内部提取
+        this.sessionData.oauthCompleteTime ? new Date(this.sessionData.oauthCompleteTime).toISOString() : null
+      );
+    }, 5000); // 5秒后执行综合诊断
   }
 
   /**
