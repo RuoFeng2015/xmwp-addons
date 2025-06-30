@@ -1,6 +1,8 @@
 const http = require('http')
 const Logger = require('./logger')
 const { getConfig } = require('./config')
+const HAHealthChecker = require('./ha-health-checker')
+const IOSIssueDiagnostic = require('./ios-issue-diagnostic')
 
 /**
  * HTTP 代理处理器
@@ -10,6 +12,7 @@ class HttpProxyHandler {
     this.tunnelClient = tunnelClient
     this.lastSuccessLogTime = new Map() // 记录每个主机上次成功连接日志的时间
     this.logCooldownPeriod = 30000 // 30秒内不重复输出相同主机的成功连接日志
+    this.healthChecker = new HAHealthChecker() // 健康检查器
   }
 
   /**
@@ -18,6 +21,12 @@ class HttpProxyHandler {
   async handleProxyRequest(message, getTargetHosts, lastSuccessfulHost) {
     // 首先验证和修复OAuth请求
     message = this.validateAndFixOAuthRequest(message);
+    
+    // iOS专用调试增强
+    const isiOSApp = this.enhanceiOSDebugging(message);
+    
+    // iOS App状态监控
+    this.monitoriOSAppState(message, isiOSApp);
     
     // 详细记录HTTP请求信息
     Logger.info(`🔄 [HTTP代理] 开始处理请求: ${message.method} ${message.url}`);
@@ -78,6 +87,12 @@ class HttpProxyHandler {
           // 使用日志去重机制，避免短时间内重复输出相同主机的连接成功日志
           this.logConnectionSuccess(hostname)
           Logger.info(`✅ [HTTP代理] 请求成功转发到: ${hostname}`);
+          
+          // 如果是iOS App，启动健康检查
+          if (isiOSApp) {
+            this.healthChecker.startHealthCheck(hostname);
+          }
+          
           return hostname
         }
       } catch (error) {
@@ -808,6 +823,252 @@ class HttpProxyHandler {
       headers['access-control-allow-headers'] = 'Accept, Content-Type, Authorization, X-Requested-With, Sec-WebSocket-Key, Sec-WebSocket-Version, Sec-WebSocket-Extensions, Sec-WebSocket-Protocol';
       headers['access-control-allow-credentials'] = 'true';
       Logger.info(`🌐 [WS CORS] 为WebSocket升级添加CORS头`);
+    }
+  }
+
+  /**
+   * iOS专用调试增强器
+   */
+  enhanceiOSDebugging(message) {
+    // 检测iOS用户代理
+    const userAgent = message.headers['user-agent'] || '';
+    const isiOSApp = userAgent.includes('Home Assistant') && userAgent.includes('iOS');
+    
+    if (isiOSApp) {
+      Logger.info(`🍎 [iOS调试] *** iOS Home Assistant App请求 ***`);
+      Logger.info(`🍎 [iOS调试] User-Agent: ${userAgent}`);
+      Logger.info(`🍎 [iOS调试] 方法: ${message.method}`);
+      Logger.info(`🍎 [iOS调试] 路径: ${message.url}`);
+      Logger.info(`🍎 [iOS调试] 来源: ${message.headers.origin || message.headers.referer || '未知'}`);
+      
+      // 分析请求类型
+      if (message.url.includes('/api/')) {
+        Logger.info(`🍎 [iOS API] *** 关键HA API请求! ***`);
+        Logger.info(`🍎 [iOS API] 这是iOS App获取HA数据的请求`);
+        Logger.info(`🍎 [iOS API] Authorization头: ${message.headers.authorization ? '存在' : '缺失'}`);
+      }
+      
+      // OAuth流程分析
+      if (message.url.includes('/auth/')) {
+        Logger.info(`🍎 [iOS OAuth] OAuth流程步骤检测`);
+        if (message.url.includes('/auth/authorize')) {
+          Logger.info(`🍎 [iOS OAuth] → 步骤1: 授权请求`);
+        } else if (message.url.includes('/auth/token')) {
+          Logger.info(`🍎 [iOS OAuth] → 步骤2: Token交换/撤销`);
+        } else if (message.url.includes('/auth/login_flow')) {
+          Logger.info(`🍎 [iOS OAuth] → 步骤0: 登录流程`);
+        }
+      }
+      
+      // 检查关键头部
+      const criticalHeaders = ['authorization', 'content-type', 'accept', 'origin'];
+      Logger.info(`🍎 [iOS头部] 关键头部信息:`);
+      criticalHeaders.forEach(header => {
+        const value = message.headers[header];
+        Logger.info(`🍎 [iOS头部]   ${header}: ${value || '未设置'}`);
+      });
+    }
+    
+    return isiOSApp;
+  }
+
+  /**
+   * iOS App状态监控
+   */
+  monitoriOSAppState(message, isiOSApp) {
+    if (!isiOSApp) return;
+    
+    // 记录iOS App的请求时间线
+    if (!this.iOSRequestTimeline) {
+      this.iOSRequestTimeline = [];
+    }
+    
+    const timestamp = new Date().toISOString();
+    const requestInfo = {
+      timestamp,
+      method: message.method,
+      url: message.url,
+      type: this.categorizeRequest(message.url)
+    };
+    
+    this.iOSRequestTimeline.push(requestInfo);
+    
+    // 只保留最近20条记录
+    if (this.iOSRequestTimeline.length > 20) {
+      this.iOSRequestTimeline = this.iOSRequestTimeline.slice(-20);
+    }
+    
+    Logger.info(`🍎 [iOS时间线] ${requestInfo.type}: ${message.method} ${message.url}`);
+    
+    // 分析iOS App行为模式
+    this.analyzeiOSBehavior();
+    
+    // 如果是OAuth完成后一段时间，进行问题诊断
+    if (isiOSApp && requestInfo.type === 'Token操作') {
+      setTimeout(() => {
+        const issues = IOSIssueDiagnostic.diagnoseConnectionIssue(this.iOSRequestTimeline, requestInfo.timestamp);
+        IOSIssueDiagnostic.generateDebugReport(this.iOSRequestTimeline, issues);
+      }, 15000); // 15秒后进行诊断
+    }
+  }
+  
+  /**
+   * 分类请求类型
+   */
+  categorizeRequest(url) {
+    if (url.includes('/auth/authorize')) return 'OAuth授权';
+    if (url.includes('/auth/token')) return 'Token操作';
+    if (url.includes('/auth/login_flow')) return '登录流程';
+    if (url.includes('/api/websocket')) return 'WebSocket';
+    if (url.includes('/api/config')) return 'HA配置';
+    if (url.includes('/api/states')) return 'HA状态';
+    if (url.includes('/api/services')) return 'HA服务';
+    if (url.includes('/api/')) return 'HA-API';
+    if (url.includes('/manifest.json')) return '应用清单';
+    return '其他';
+  }
+  
+  /**
+   * 分析iOS行为模式
+   */
+  analyzeiOSBehavior() {
+    if (!this.iOSRequestTimeline || this.iOSRequestTimeline.length < 5) return;
+    
+    const recentRequests = this.iOSRequestTimeline.slice(-10);
+    const types = recentRequests.map(r => r.type);
+    
+    // 检查是否完成了OAuth流程但没有API请求
+    const hasOAuth = types.includes('OAuth授权') || types.includes('Token操作');
+    const hasAPI = types.some(t => t.includes('HA-') || t === 'HA配置' || t === 'HA状态');
+    
+    if (hasOAuth && !hasAPI) {
+      const lastTokenOp = recentRequests.find(r => r.type === 'Token操作');
+      if (lastTokenOp) {
+        const timeSinceToken = Date.now() - new Date(lastTokenOp.timestamp).getTime();
+        if (timeSinceToken > 10000) { // 10秒后还没有API请求
+          Logger.warn(`🍎 [iOS异常] ⚠️ OAuth完成${Math.round(timeSinceToken/1000)}秒后仍无HA API请求!`);
+          Logger.warn(`🍎 [iOS异常] 可能原因: CORS限制、证书问题、App内部错误`);
+          Logger.warn(`🍎 [iOS异常] 建议: 检查iOS Console日志、重装App、检查网络设置`);
+        }
+      }
+    }
+    
+    // 检查请求模式
+    Logger.debug(`🍎 [iOS模式] 最近请求类型: ${types.join(' → ')}`);
+  }
+
+  /**
+   * iOS专用响应内容分析
+   */
+  analyzeiOSResponse(message, proxyRes, responseBody) {
+    Logger.info(`🍎 [iOS响应] *** 分析iOS应用响应内容 ***`);
+    Logger.info(`🍎 [iOS响应] 状态码: ${proxyRes.statusCode}`);
+    Logger.info(`🍎 [iOS响应] Content-Type: ${proxyRes.headers['content-type'] || '未设置'}`);
+    Logger.info(`🍎 [iOS响应] 响应大小: ${responseBody.length} bytes`);
+    
+    // 检查关键API响应
+    if (message.url.includes('/api/config')) {
+      Logger.info(`🍎 [iOS配置] HA配置API响应 - iOS App应从此获取HA实例信息`);
+      if (responseBody.length > 0) {
+        try {
+          const config = JSON.parse(responseBody.toString());
+          Logger.info(`🍎 [iOS配置] HA版本: ${config.version || '未知'}`);
+          Logger.info(`🍎 [iOS配置] 配置项数量: ${Object.keys(config).length}`);
+        } catch (e) {
+          Logger.warn(`🍎 [iOS配置] 配置响应解析失败: ${e.message}`);
+        }
+      } else {
+        Logger.error(`🍎 [iOS配置] ⚠️ 配置响应为空! iOS App将无法获取HA信息`);
+      }
+    }
+    
+    if (message.url.includes('/api/states')) {
+      Logger.info(`🍎 [iOS状态] HA状态API响应 - iOS App应从此获取实体状态`);
+      if (responseBody.length > 0) {
+        try {
+          const states = JSON.parse(responseBody.toString());
+          if (Array.isArray(states)) {
+            Logger.info(`🍎 [iOS状态] 实体数量: ${states.length}`);
+          }
+        } catch (e) {
+          Logger.warn(`🍎 [iOS状态] 状态响应解析失败: ${e.message}`);
+        }
+      } else {
+        Logger.error(`🍎 [iOS状态] ⚠️ 状态响应为空! iOS App将看不到任何实体`);
+      }
+    }
+    
+    // 检查token响应
+    if (message.url.includes('/auth/token')) {
+      if (responseBody.length > 0) {
+        try {
+          const tokenData = JSON.parse(responseBody.toString());
+          if (tokenData.access_token) {
+            Logger.info(`🍎 [iOS Token] ✅ access_token获取成功，长度: ${tokenData.access_token.length}`);
+          }
+          if (tokenData.refresh_token) {
+            Logger.info(`🍎 [iOS Token] ✅ refresh_token获取成功，长度: ${tokenData.refresh_token.length}`);
+          }
+          if (tokenData.token_type) {
+            Logger.info(`🍎 [iOS Token] Token类型: ${tokenData.token_type}`);
+          }
+        } catch (e) {
+          Logger.warn(`🍎 [iOS Token] Token响应解析失败: ${e.message}`);
+          Logger.warn(`🍎 [iOS Token] 原始响应: ${responseBody.toString().substring(0, 200)}...`);
+        }
+      }
+    }
+    
+    // 检查错误响应
+    if (proxyRes.statusCode >= 400) {
+      Logger.error(`🍎 [iOS错误] ⚠️ iOS App收到错误响应: ${proxyRes.statusCode}`);
+      if (responseBody.length > 0) {
+        Logger.error(`🍎 [iOS错误] 错误内容: ${responseBody.toString().substring(0, 500)}`);
+      }
+      
+      // 特定错误分析
+      if (proxyRes.statusCode === 401) {
+        Logger.error(`🍎 [iOS错误] 认证失败 - 可能token无效或过期`);
+      } else if (proxyRes.statusCode === 403) {
+        Logger.error(`🍎 [iOS错误] 权限拒绝 - 可能用户权限不足`);
+      } else if (proxyRes.statusCode >= 500) {
+        Logger.error(`🍎 [iOS错误] HA服务器内部错误`);
+      }
+    }
+    
+    // 检查响应头中可能的问题
+    this.checkiOSCompatibilityHeaders(proxyRes.headers);
+  }
+  
+  /**
+   * 检查iOS兼容性头部
+   */
+  checkiOSCompatibilityHeaders(headers) {
+    const issues = [];
+    
+    // 检查CORS头
+    if (!headers['access-control-allow-origin']) {
+      issues.push('缺少CORS Origin头');
+    }
+    
+    // 检查Content-Type
+    if (!headers['content-type']) {
+      issues.push('缺少Content-Type头');
+    }
+    
+    // 检查是否有可能阻止iOS的安全头
+    if (headers['x-frame-options'] === 'DENY') {
+      issues.push('X-Frame-Options可能过于严格');
+    }
+    
+    if (headers['content-security-policy']) {
+      issues.push('存在CSP头，可能限制iOS应用');
+    }
+    
+    if (issues.length > 0) {
+      Logger.warn(`🍎 [iOS兼容性] 潜在问题: ${issues.join(', ')}`);
+    } else {
+      Logger.info(`🍎 [iOS兼容性] ✅ 响应头兼容性良好`);
     }
   }
 }
