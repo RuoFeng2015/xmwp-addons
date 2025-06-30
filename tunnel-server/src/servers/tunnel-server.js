@@ -310,6 +310,18 @@ class TunnelServer {
           Logger.info(`📤 [HTTP API响应] ${req.method} ${req.url} -> ${status_code}, 长度: ${responseBody.length}`);
         }
 
+        // OAuth 响应特别日志
+        if (req && req.url && req.url.includes('/auth/token')) {
+          Logger.info(`🔐 [服务器OAuth响应] ${req.method} ${req.url} -> HTTP ${status_code}`);
+          Logger.info(`🔐 [服务器OAuth响应] 响应体长度: ${responseBody.length} bytes`);
+          Logger.info(`🔐 [服务器OAuth响应] 响应已成功发送给iOS客户端`);
+          
+          // 如果是token撤销请求的响应
+          if (req.url.includes('action=revoke') || (req.method === 'POST' && responseBody.length === 0)) {
+            Logger.info(`🔐 [服务器OAuth响应] ✅ Token撤销响应已发送 (空响应为正常)`);
+          }
+        }
+
       } catch (error) {
         Logger.error(`发送代理响应失败: ${error.message}`);
         this.sendErrorResponse(res, status_code, body);

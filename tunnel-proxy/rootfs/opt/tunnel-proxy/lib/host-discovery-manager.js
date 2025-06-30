@@ -73,11 +73,13 @@ class HostDiscoveryManager {
    */
   getDefaultTargetHosts() {
     return [
+      'homeassistant.local',  // Home Assistant OS 默认主机名 - 提升优先级
       '127.0.0.1',
       'localhost',
       '192.168.6.170',  // 当前已知的工作地址
       'hassio.local',
-      'homeassistant.local',
+      'homeassistant.local.hass.io',
+      'homeassistant',      // 简化版本
       '172.30.32.2',    // Docker 常见地址
       '192.168.6.1',
       '192.168.1.170',

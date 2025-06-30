@@ -23,6 +23,9 @@ class HttpProxyHandler {
     Logger.info(`🔄 [HTTP代理] 开始处理请求: ${message.method} ${message.url}`);
     Logger.info(`🔄 [HTTP代理] 请求ID: ${message.request_id}`);
     
+    // 记录主机状态信息
+    Logger.info(`🏠 [主机状态] 上次成功主机: ${lastSuccessfulHost || '无'}`);
+    
     // 特别标识OAuth认证请求
     if (message.url && (message.url.includes('/auth/token') || message.url.includes('/auth/'))) {
       Logger.info(`🔐 [OAuth认证] *** 检测到OAuth认证请求! ***`);
@@ -65,6 +68,7 @@ class HttpProxyHandler {
       : discoveredHosts
 
     Logger.info(`🔍 [HTTP代理] 尝试连接 ${targetHosts.length} 个HA主机: ${targetHosts.join(', ')}`);
+    Logger.info(`🎯 [主机优先级] 第一优先级: ${targetHosts[0]} ${lastSuccessfulHost ? '(上次成功主机)' : '(发现的主机)'}`);
 
     for (const hostname of targetHosts) {
       try {
@@ -175,13 +179,26 @@ class HttpProxyHandler {
         proxyRes.on('data', (chunk) => {
           responseBody = Buffer.concat([responseBody, chunk])
         })
-        proxyRes.on('end', () => {
-          Logger.info(`📤 [HTTP响应] 响应完成: ${responseBody.length} bytes, 状态: ${proxyRes.statusCode}`);
+        proxyRes.on('end', () => {        Logger.info(`📤 [HTTP响应] 响应完成: ${responseBody.length} bytes, 状态: ${proxyRes.statusCode}`);
+        
+        // OAuth响应内容预览
+        if (message.url && message.url.includes('/auth/') && responseBody.length < 500) {
+          Logger.info(`🔐 [OAuth响应] 内容预览: ${responseBody.toString()}`);
+        }
+
+        // 特别处理token撤销请求的响应
+        if (message.url && message.url.includes('/auth/token')) {
+          Logger.info(`🔐 [OAuth Token响应] *** 准备发送token响应给服务器 ***`);
+          Logger.info(`🔐 [OAuth Token响应] 请求ID: ${message.request_id}`);
+          Logger.info(`🔐 [OAuth Token响应] 状态码: ${proxyRes.statusCode}`);
+          Logger.info(`🔐 [OAuth Token响应] 响应长度: ${responseBody.length} bytes`);
           
-          // OAuth响应内容预览
-          if (message.url && message.url.includes('/auth/') && responseBody.length < 500) {
-            Logger.info(`🔐 [OAuth响应] 内容预览: ${responseBody.toString()}`);
+          // 检查是否是token撤销请求的响应
+          if (responseBody.length === 0 && proxyRes.statusCode === 200) {
+            Logger.info(`🔐 [OAuth Token响应] ✅ Token撤销请求正常响应（空响应体+200状态码）`);
+            Logger.info(`🔐 [OAuth Token响应] 这是HA对token撤销的标准响应`);
           }
+        }
 
           const response = {
             type: 'proxy_response',
