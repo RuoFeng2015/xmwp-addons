@@ -283,10 +283,17 @@ class HttpProxyHandler {
           }
           
           // 检查token响应的CORS头
-          if (isTokenExchange && corsHeaders['access-control-allow-origin']) {
-            Logger.info(`🔐 [OAuth CORS] Token交换响应包含CORS头: ${corsHeaders['access-control-allow-origin']}`);
-          } else if (isTokenExchange) {
-            Logger.warn(`🔐 [OAuth CORS] ⚠️ Token交换响应缺少CORS头，可能影响iOS`);
+          if (isTokenExchange) {
+            if (enhancedHeaders['access-control-allow-origin']) {
+              Logger.info(`🔐 [OAuth CORS] ✅ Token交换响应包含CORS头: ${enhancedHeaders['access-control-allow-origin']}`);
+              Logger.info(`🔐 [OAuth CORS] 这应该解决iOS OnboardingAuthError问题!`);
+            } else {
+              Logger.error(`🔐 [OAuth CORS] ❌ Token交换响应仍缺少CORS头，可能影响iOS`);
+            }
+          } else if (isTokenRevoke) {
+            if (enhancedHeaders['access-control-allow-origin']) {
+              Logger.info(`🔐 [OAuth CORS] Token撤销响应包含CORS头: ${enhancedHeaders['access-control-allow-origin']}`);
+            }
           }
         }
 
@@ -312,16 +319,29 @@ class HttpProxyHandler {
           }
           
           // 检查关键API的CORS
-          if (message.url.includes('/api/') && !corsHeaders['access-control-allow-origin']) {
-            Logger.warn(`🍎 [iOS API CORS] ⚠️ API响应缺少CORS头: ${message.url}`);
+          if (message.url.includes('/api/')) {
+            if (enhancedHeaders['access-control-allow-origin']) {
+              Logger.info(`🍎 [iOS API CORS] ✅ API响应包含CORS头: ${message.url}`);
+            } else {
+              Logger.warn(`🍎 [iOS API CORS] ⚠️ API响应缺少CORS头: ${message.url}`);
+            }
           }
         }
+
+          // 增强响应头处理 - 为OAuth和API请求添加必要的CORS头
+          const enhancedHeaders = { ...proxyRes.headers };
+          
+          // 检查是否需要添加CORS头
+          const needsCorsHeaders = this.shouldAddCorsHeaders(message, proxyRes);
+          if (needsCorsHeaders) {
+            this.addCorsHeaders(enhancedHeaders, message);
+          }
 
           const response = {
             type: 'proxy_response',
             request_id: message.request_id,
             status_code: proxyRes.statusCode,
-            headers: proxyRes.headers,
+            headers: enhancedHeaders,
             body: responseBody.toString('base64'),
           }
 
@@ -686,6 +706,112 @@ class HttpProxyHandler {
 
     return message;
   }
+
+  /**
+   * 检查是否需要为响应添加CORS头
+   */
+  shouldAddCorsHeaders(message, proxyRes) {
+    const url = message.url || '';
+    const headers = proxyRes.headers || {};
+    const origin = message.headers?.origin || '';
+    
+    // 如果已经有CORS头，通常不需要添加
+    if (headers['access-control-allow-origin']) {
+      return false;
+    }
+    
+    // OAuth相关请求必须有CORS头（iOS严格要求）
+    if (url.includes('/auth/token') || 
+        url.includes('/auth/providers') || 
+        url.includes('/auth/login_flow')) {
+      Logger.info(`🌐 [CORS检查] OAuth请求需要CORS头: ${url}`);
+      return true;
+    }
+    
+    // API请求如果来自iOS应用也需要CORS头
+    if (url.includes('/api/') && origin.includes('ha-client-001.wzzhk.club')) {
+      Logger.info(`🌐 [CORS检查] iOS API请求需要CORS头: ${url}`);
+      return true;
+    }
+    
+    // WebSocket升级请求可能需要CORS头
+    if (message.headers?.upgrade?.toLowerCase() === 'websocket' && origin) {
+      Logger.info(`🌐 [CORS检查] WebSocket升级请求需要CORS头`);
+      return true;
+    }
+    
+    return false;
+  }
+
+  /**
+   * 为响应添加CORS头
+   */
+  addCorsHeaders(headers, message) {
+    const origin = message.headers?.origin || '';
+    const url = message.url || '';
+    
+    // 基本CORS头 - 允许iOS应用域名
+    if (origin.includes('ha-client-001.wzzhk.club') || origin.includes('homeassistant://')) {
+      headers['access-control-allow-origin'] = origin;
+      Logger.info(`🌐 [CORS添加] 设置Origin为: ${origin}`);
+    } else if (origin) {
+      // 对于其他来源，使用通配符（仅在必要时）
+      headers['access-control-allow-origin'] = '*';
+      Logger.info(`🌐 [CORS添加] 设置Origin为通配符: ${origin}`);
+    } else {
+      // 没有Origin头，使用通配符
+      headers['access-control-allow-origin'] = '*';
+      Logger.info(`🌐 [CORS添加] 设置Origin为通配符（无Origin请求头）`);
+    }
+    
+    // OAuth请求需要的CORS头
+    if (url.includes('/auth/')) {
+      headers['access-control-allow-methods'] = 'GET, POST, PUT, DELETE, OPTIONS';
+      headers['access-control-allow-headers'] = 'Accept, Content-Type, Authorization, X-Requested-With';
+      headers['access-control-allow-credentials'] = 'true';
+      Logger.info(`🔐 [OAuth CORS] 为OAuth请求添加完整CORS头集合`);
+      
+      // 特别检查token交换请求
+      if (url.includes('/auth/token')) {
+        let requestBodyContent = '';
+        try {
+          if (message.body) {
+            if (typeof message.body === 'string' && message.body.match(/^[A-Za-z0-9+/]+=*$/)) {
+              requestBodyContent = Buffer.from(message.body, 'base64').toString();
+            } else {
+              requestBodyContent = message.body.toString();
+            }
+          }
+        } catch (e) {
+          // 忽略解析错误
+        }
+        
+        const isTokenExchange = requestBodyContent.includes('grant_type=authorization_code');
+        if (isTokenExchange) {
+          Logger.info(`🔐 [OAuth CORS] *** 为关键Token交换请求添加CORS头! ***`);
+          Logger.info(`🔐 [OAuth CORS] 这应该解决iOS OnboardingAuthError问题`);
+        }
+      }
+    }
+    
+    // API请求的CORS头
+    if (url.includes('/api/')) {
+      headers['access-control-allow-methods'] = 'GET, POST, PUT, DELETE, OPTIONS';
+      headers['access-control-allow-headers'] = 'Accept, Content-Type, Authorization, X-Requested-With';
+      headers['access-control-allow-credentials'] = 'true';
+      Logger.info(`🍎 [API CORS] 为API请求添加CORS头: ${url}`);
+    }
+    
+    // WebSocket的CORS头
+    if (message.headers?.upgrade?.toLowerCase() === 'websocket') {
+      headers['access-control-allow-methods'] = 'GET';
+      headers['access-control-allow-headers'] = 'Accept, Content-Type, Authorization, X-Requested-With, Sec-WebSocket-Key, Sec-WebSocket-Version, Sec-WebSocket-Extensions, Sec-WebSocket-Protocol';
+      headers['access-control-allow-credentials'] = 'true';
+      Logger.info(`🌐 [WS CORS] 为WebSocket升级添加CORS头`);
+    }
+  }
+
+  // ...existing code...
 }
 
 module.exports = HttpProxyHandler
