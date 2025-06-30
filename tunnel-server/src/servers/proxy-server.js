@@ -41,13 +41,29 @@ class ProxyServer {
       if (ctx.method !== 'GET' && ctx.method !== 'HEAD') {
         const body = [];
         ctx.req.on('data', chunk => body.push(chunk));
-        ctx.req.on('end', () => {
-          ctx.rawBody = Buffer.concat(body);
-        });
-
-        // 等待原始 body 读取完成
+        
         await new Promise((resolve) => {
-          ctx.req.on('end', resolve);
+          ctx.req.on('end', () => {
+            ctx.rawBody = Buffer.concat(body);
+            
+            // 特别记录OAuth请求的原始数据
+            if (ctx.url && ctx.url.includes('/auth/token')) {
+              Logger.info(`🔐 [服务器收到OAuth] 原始请求体长度: ${ctx.rawBody.length} bytes`);
+              if (ctx.rawBody.length > 0) {
+                const bodyString = ctx.rawBody.toString();
+                Logger.info(`🔐 [服务器收到OAuth] 请求体内容: ${bodyString}`);
+                
+                // 验证OAuth参数
+                const hasGrantType = bodyString.includes('grant_type=');
+                const hasCode = bodyString.includes('code=');
+                Logger.info(`🔐 [服务器OAuth验证] grant_type: ${hasGrantType}, code: ${hasCode}`);
+              } else {
+                Logger.error(`🔐 [服务器OAuth错误] ❌ OAuth请求体为空!`);
+              }
+            }
+            
+            resolve();
+          });
         });
       }
       await next();

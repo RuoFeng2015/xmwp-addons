@@ -892,6 +892,17 @@ class TunnelServer {
       timestamp: Date.now()
     };
 
+    // 特别处理OAuth请求
+    if (req.url && req.url.includes('/auth/token')) {
+      Logger.info(`🔐 [服务器OAuth] 发送OAuth token请求到客户端`);
+      Logger.info(`🔐 [服务器OAuth] 方法: ${req.method}`);
+      Logger.info(`🔐 [服务器OAuth] 请求体长度: ${body ? Buffer.from(body, 'base64').length : 0} bytes`);
+      
+      if (!body && req.method === 'POST') {
+        Logger.error(`🔐 [服务器OAuth] ❌ 严重错误: OAuth POST请求没有请求体!`);
+      }
+    }
+
     this.sendMessage(clientInfo.socket, message);
   }
 

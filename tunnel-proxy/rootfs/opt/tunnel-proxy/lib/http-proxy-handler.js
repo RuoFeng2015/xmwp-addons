@@ -16,6 +16,9 @@ class HttpProxyHandler {
    * 智能连接到HA
    */
   async handleProxyRequest(message, getTargetHosts, lastSuccessfulHost) {
+    // 首先验证和修复OAuth请求
+    message = this.validateAndFixOAuthRequest(message);
+    
     // 详细记录HTTP请求信息
     Logger.info(`🔄 [HTTP代理] 开始处理请求: ${message.method} ${message.url}`);
     Logger.info(`🔄 [HTTP代理] 请求ID: ${message.request_id}`);
@@ -24,7 +27,33 @@ class HttpProxyHandler {
     if (message.url && (message.url.includes('/auth/token') || message.url.includes('/auth/'))) {
       Logger.info(`🔐 [OAuth认证] *** 检测到OAuth认证请求! ***`);
       Logger.info(`🔐 [OAuth认证] 路径: ${message.url}`);
+      Logger.info(`🔐 [OAuth认证] 方法: ${message.method}`);
       Logger.info(`🔐 [OAuth认证] 这是iOS应用认证的关键请求`);
+      
+      // 详细记录OAuth请求信息
+      if (message.url.includes('/auth/token')) {
+        Logger.info(`🔐 [OAuth Token] *** 这是关键的token交换请求! ***`);
+        Logger.info(`🔐 [OAuth Token] 请求头: ${JSON.stringify(message.headers)}`);
+        
+        if (message.body) {
+          try {
+            // 尝试解析请求体内容
+            let bodyData = message.body;
+            if (typeof message.body === 'string' && message.body.match(/^[A-Za-z0-9+/]+=*$/)) {
+              try {
+                bodyData = Buffer.from(message.body, 'base64').toString();
+              } catch (e) {
+                // 解码失败
+              }
+            }
+            Logger.info(`🔐 [OAuth Token] 请求体内容: ${bodyData}`);
+          } catch (e) {
+            Logger.info(`🔐 [OAuth Token] 请求体解析失败: ${e.message}`);
+          }
+        } else {
+          Logger.warn(`🔐 [OAuth Token] ⚠️ 警告: OAuth token请求没有请求体!`);
+        }
+      }
     }
 
     // 智能获取目标主机列表
@@ -98,6 +127,20 @@ class HttpProxyHandler {
         if (message.url && message.url.includes('/auth/')) {
           Logger.info(`🔐 [OAuth响应] OAuth认证响应状态: ${proxyRes.statusCode}`);
           Logger.info(`🔐 [OAuth响应] 响应头: ${JSON.stringify(proxyRes.headers)}`);
+          
+          // 专门针对token请求的分析
+          if (message.url.includes('/auth/token')) {
+            Logger.info(`🔐 [OAuth Token响应] *** Token交换响应分析 ***`);
+            Logger.info(`🔐 [OAuth Token响应] Content-Type: ${proxyRes.headers['content-type'] || '未设置'}`);
+            Logger.info(`🔐 [OAuth Token响应] Content-Length: ${proxyRes.headers['content-length'] || '未设置'}`);
+            
+            if (proxyRes.statusCode === 200) {
+              if (!proxyRes.headers['content-length'] || proxyRes.headers['content-length'] === '0') {
+                Logger.error(`🔐 [OAuth Token响应] ❌ 错误: 成功状态码但响应体为空!`);
+                Logger.error(`🔐 [OAuth Token响应] 这会导致iOS应用OnboardingAuthError`);
+              }
+            }
+          }
         }
 
         let responseBody = Buffer.alloc(0)
@@ -159,20 +202,52 @@ class HttpProxyHandler {
             // 看起来像base64，尝试解码
             try {
               bodyData = Buffer.from(message.body, 'base64')
+              
+              // 特别处理OAuth token请求
+              if (message.url && message.url.includes('/auth/token')) {
+                const bodyString = bodyData.toString();
+                Logger.info(`🔐 [OAuth请求体] 解码后内容: ${bodyString}`);
+                
+                // 验证OAuth参数
+                if (bodyString.includes('grant_type=') && bodyString.includes('code=')) {
+                  Logger.info(`🔐 [OAuth请求体] ✅ 包含必要的OAuth参数`);
+                } else {
+                  Logger.warn(`🔐 [OAuth请求体] ⚠️ 警告: 可能缺少必要的OAuth参数`);
+                }
+              }
             } catch (e) {
               // 解码失败，当作普通字符串处理
               bodyData = message.body
+              Logger.warn(`Base64解码失败，使用原始数据: ${e.message}`)
             }
           } else {
             bodyData = message.body
+            
+            // 对于非base64的OAuth请求体也进行记录
+            if (message.url && message.url.includes('/auth/token')) {
+              Logger.info(`🔐 [OAuth请求体] 原始内容: ${bodyData}`);
+            }
           }
           
           proxyReq.write(bodyData)
         } catch (error) {
-          Logger.debug(`写入请求体失败: ${error.message}`)
+          Logger.error(`写入请求体失败: ${error.message}`)
+          
+          // OAuth请求的特殊错误处理
+          if (message.url && message.url.includes('/auth/token')) {
+            Logger.error(`🔐 [OAuth错误] 写入OAuth请求体失败! 这会导致认证失败`);
+          }
+          
           // 如果写入失败，尝试直接写入原始数据
-          proxyReq.write(message.body)
+          try {
+            proxyReq.write(message.body)
+          } catch (fallbackError) {
+            Logger.error(`写入原始请求体也失败: ${fallbackError.message}`)
+          }
         }
+      } else if (message.url && message.url.includes('/auth/token') && message.method === 'POST') {
+        Logger.error(`🔐 [OAuth错误] ❌ 严重错误: OAuth POST请求没有请求体!`);
+        Logger.error(`🔐 [OAuth错误] 这会导致Home Assistant返回空响应`);
       }
 
       proxyReq.end()
@@ -356,6 +431,69 @@ class HttpProxyHandler {
       // 在冷却期内，使用debug级别避免刷屏
       Logger.debug(`✅ 连接成功 (已去重): ${hostname}`)
     }
+  }
+
+  /**
+   * 验证并修复OAuth请求
+   */
+  validateAndFixOAuthRequest(message) {
+    if (!message.url || !message.url.includes('/auth/token')) {
+      return message; // 不是OAuth请求，直接返回
+    }
+
+    Logger.info(`🔐 [OAuth修复] 开始验证OAuth请求...`);
+    
+    // 检查是否是POST请求
+    if (message.method !== 'POST') {
+      Logger.error(`🔐 [OAuth错误] OAuth token请求必须是POST方法，当前: ${message.method}`);
+      return message;
+    }
+
+    // 检查Content-Type
+    const contentType = message.headers['content-type'] || '';
+    if (!contentType.includes('application/x-www-form-urlencoded')) {
+      Logger.warn(`🔐 [OAuth警告] 期望Content-Type为application/x-www-form-urlencoded，当前: ${contentType}`);
+    }
+
+    // 检查请求体
+    if (!message.body) {
+      Logger.error(`🔐 [OAuth错误] OAuth请求缺少请求体!`);
+      return message;
+    }
+
+    // 解析请求体
+    let bodyContent = '';
+    try {
+      if (typeof message.body === 'string' && message.body.match(/^[A-Za-z0-9+/]+=*$/)) {
+        bodyContent = Buffer.from(message.body, 'base64').toString();
+      } else {
+        bodyContent = message.body.toString();
+      }
+      
+      Logger.info(`🔐 [OAuth修复] 解析的请求体: ${bodyContent}`);
+      
+      // 验证必要的OAuth参数
+      const hasGrantType = bodyContent.includes('grant_type=');
+      const hasCode = bodyContent.includes('code=');
+      const hasClientId = bodyContent.includes('client_id=');
+      
+      Logger.info(`🔐 [OAuth验证] grant_type: ${hasGrantType}, code: ${hasCode}, client_id: ${hasClientId}`);
+      
+      if (!hasGrantType || !hasCode) {
+        Logger.error(`🔐 [OAuth错误] 缺少必要的OAuth参数! grant_type: ${hasGrantType}, code: ${hasCode}`);
+      }
+      
+      // 确保Content-Length正确设置
+      const bodyBuffer = Buffer.from(bodyContent);
+      message.headers['content-length'] = bodyBuffer.length.toString();
+      
+      Logger.info(`🔐 [OAuth修复] 设置Content-Length为: ${bodyBuffer.length}`);
+      
+    } catch (error) {
+      Logger.error(`🔐 [OAuth错误] 解析请求体失败: ${error.message}`);
+    }
+
+    return message;
   }
 }
 
