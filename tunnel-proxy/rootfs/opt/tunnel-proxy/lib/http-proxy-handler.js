@@ -810,8 +810,6 @@ class HttpProxyHandler {
       Logger.info(`🌐 [WS CORS] 为WebSocket升级添加CORS头`);
     }
   }
-
-  // ...existing code...
 }
 
 module.exports = HttpProxyHandler
