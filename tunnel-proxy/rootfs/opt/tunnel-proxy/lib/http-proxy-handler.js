@@ -3,6 +3,8 @@ const Logger = require('./logger')
 const { getConfig } = require('./config')
 const HAHealthChecker = require('./ha-health-checker')
 const IOSIssueDiagnostic = require('./ios-issue-diagnostic')
+const APIMonitor = require('./api-monitor')
+const IOSBehaviorAnalyzer = require('./ios-behavior-analyzer')
 
 /**
  * HTTP 代理处理器
@@ -13,6 +15,9 @@ class HttpProxyHandler {
     this.lastSuccessLogTime = new Map() // 记录每个主机上次成功连接日志的时间
     this.logCooldownPeriod = 30000 // 30秒内不重复输出相同主机的成功连接日志
     this.healthChecker = new HAHealthChecker() // 健康检查器
+    this.apiMonitor = new APIMonitor() // API监控器
+    this.lastAccessToken = null // 存储最后的access_token
+    this.iosBehaviorAnalyzer = new IOSBehaviorAnalyzer() // iOS行为分析器
   }
 
   /**
@@ -301,6 +306,52 @@ class HttpProxyHandler {
               }
             } else {
               Logger.info(`🔐 [OAuth Token响应] ✅ 响应包含内容，长度: ${proxyRes.headers['content-length']} bytes`);
+              
+              // 如果是token交换成功，提取access_token并启动API监控
+              if (isTokenExchange && responseBody.length > 0) {
+                try {
+                  // 首先尝试解压缩响应
+                  let decompressedData = responseBody;
+                  const encoding = proxyRes.headers['content-encoding'];
+                  
+                  if (encoding === 'deflate') {
+                    const zlib = require('zlib');
+                    decompressedData = zlib.inflateSync(responseBody);
+                    Logger.info(`🔐 [OAuth Token解析] deflate解压缩成功`);
+                  } else if (encoding === 'gzip') {
+                    const zlib = require('zlib');
+                    decompressedData = zlib.gunzipSync(responseBody);
+                    Logger.info(`🔐 [OAuth Token解析] gzip解压缩成功`);
+                  } else if (encoding === 'br') {
+                    const zlib = require('zlib');
+                    decompressedData = zlib.brotliDecompressSync(responseBody);
+                    Logger.info(`🔐 [OAuth Token解析] brotli解压缩成功`);
+                  }
+                  
+                  const tokenResponse = JSON.parse(decompressedData.toString());
+                  if (tokenResponse.access_token) {
+                    this.lastAccessToken = tokenResponse.access_token;
+                    Logger.info(`🔐 [OAuth Token解析] ✅ 成功提取access_token`);
+                    Logger.info(`🔐 [OAuth Token解析] Token长度: ${tokenResponse.access_token.length}`);
+                    
+                    // 记录OAuth完成
+                    this.iosBehaviorAnalyzer.recordOAuthComplete();
+                    
+                    // 启动API监控 - 模拟iOS App的API调用
+                    setTimeout(() => {
+                      Logger.info(`🍎 [API监控] 启动API监控，模拟iOS App行为...`);
+                      this.apiMonitor.startMonitoring(options.hostname, this.lastAccessToken);
+                    }, 3000); // 3秒后启动
+                    
+                    // 25秒后生成行为分析报告
+                    setTimeout(() => {
+                      this.iosBehaviorAnalyzer.generateReport();
+                    }, 25000);
+                  }
+                } catch (e) {
+                  Logger.warn(`🔐 [OAuth Token解析] 解析token响应失败: ${e.message}`);
+                }
+              }
             }
           } else {
             Logger.warn(`🔐 [OAuth Token响应] ⚠️ 非200状态码: ${proxyRes.statusCode}`);
@@ -340,6 +391,11 @@ class HttpProxyHandler {
             Logger.error(`🍎 [iOS API错误] 这可能导致iOS应用连接失败`);
           } else {
             Logger.info(`🍎 [iOS API成功] API请求成功: ${message.url}`);
+          }
+          
+          // 记录到行为分析器
+          if (isiOSApp) {
+            this.iosBehaviorAnalyzer.recordAPIRequest(message.method, message.url, proxyRes.statusCode, responseBody.length);
           }
           
           // 检查关键API的CORS
@@ -853,6 +909,7 @@ class HttpProxyHandler {
         Logger.info(`🍎 [iOS OAuth] OAuth流程步骤检测`);
         if (message.url.includes('/auth/authorize')) {
           Logger.info(`🍎 [iOS OAuth] → 步骤1: 授权请求`);
+          this.iosBehaviorAnalyzer.recordOAuthStart();
         } else if (message.url.includes('/auth/token')) {
           Logger.info(`🍎 [iOS OAuth] → 步骤2: Token交换/撤销`);
         } else if (message.url.includes('/auth/login_flow')) {
