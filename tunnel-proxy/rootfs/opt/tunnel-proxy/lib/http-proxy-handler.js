@@ -186,17 +186,40 @@ class HttpProxyHandler {
           Logger.info(`🔐 [OAuth响应] 内容预览: ${responseBody.toString()}`);
         }
 
-        // 特别处理token撤销请求的响应
+        // 特别处理token请求的响应
         if (message.url && message.url.includes('/auth/token')) {
           Logger.info(`🔐 [OAuth Token响应] *** 准备发送token响应给服务器 ***`);
           Logger.info(`🔐 [OAuth Token响应] 请求ID: ${message.request_id}`);
           Logger.info(`🔐 [OAuth Token响应] 状态码: ${proxyRes.statusCode}`);
           Logger.info(`🔐 [OAuth Token响应] 响应长度: ${responseBody.length} bytes`);
           
-          // 检查是否是token撤销请求的响应
+          // 检查响应内容类型
           if (responseBody.length === 0 && proxyRes.statusCode === 200) {
             Logger.info(`🔐 [OAuth Token响应] ✅ Token撤销请求正常响应（空响应体+200状态码）`);
             Logger.info(`🔐 [OAuth Token响应] 这是HA对token撤销的标准响应`);
+          } else if (responseBody.length > 0 && proxyRes.statusCode === 200) {
+            Logger.info(`🔐 [OAuth Token响应] ✅ Authorization Code交换成功!`);
+            Logger.info(`🔐 [OAuth Token响应] 响应包含access_token和refresh_token`);
+            
+            // 验证响应是否包含必要的token
+            const responseText = responseBody.toString();
+            const hasAccessToken = responseText.includes('access_token');
+            const hasRefreshToken = responseText.includes('refresh_token');
+            const hasTokenType = responseText.includes('token_type');
+            
+            Logger.info(`🔐 [OAuth Token验证] access_token: ${hasAccessToken}, refresh_token: ${hasRefreshToken}, token_type: ${hasTokenType}`);
+            
+            if (!hasAccessToken || !hasRefreshToken) {
+              Logger.error(`🔐 [OAuth Token错误] ❌ iOS需要的token缺失!`);
+              Logger.error(`🔐 [OAuth Token错误] 这会导致OnboardingAuthError!`);
+              Logger.error(`🔐 [OAuth Token错误] 响应内容: ${responseText}`);
+            } else {
+              Logger.info(`🔐 [OAuth Token成功] ✅ iOS应用将成功添加服务器!`);
+            }
+          } else {
+            Logger.error(`🔐 [OAuth Token错误] ❌ 异常的token响应!`);
+            Logger.error(`🔐 [OAuth Token错误] 状态码: ${proxyRes.statusCode}, 长度: ${responseBody.length}`);
+            Logger.error(`🔐 [OAuth Token错误] 这会导致iOS OnboardingAuthError!`);
           }
         }
 
@@ -536,14 +559,17 @@ class HttpProxyHandler {
       const isTokenRefresh = bodyContent.includes('grant_type=refresh_token');
       
       if (isTokenExchange) {
-        Logger.info(`🔐 [OAuth类型] Token交换请求 (正常的OAuth认证流程)`);
+        Logger.info(`🔐 [OAuth类型] *** AUTHORIZATION CODE交换请求 (关键!) ***`);
         const hasGrantType = bodyContent.includes('grant_type=');
         const hasCode = bodyContent.includes('code=');
         const hasClientId = bodyContent.includes('client_id=');
         Logger.info(`🔐 [OAuth验证] grant_type: ${hasGrantType}, code: ${hasCode}, client_id: ${hasClientId}`);
+        Logger.info(`🔐 [OAuth重要] 这是iOS应用添加服务器的核心步骤! 必须返回access_token和refresh_token`);
         
         if (!hasGrantType || !hasCode) {
-          Logger.error(`🔐 [OAuth错误] Token交换请求缺少必要参数! grant_type: ${hasGrantType}, code: ${hasCode}`);
+          Logger.error(`🔐 [OAuth错误] ❌ Authorization Code交换请求缺少必要参数!`);
+          Logger.error(`🔐 [OAuth错误] grant_type: ${hasGrantType}, code: ${hasCode}`);
+          Logger.error(`🔐 [OAuth错误] 这会导致iOS OnboardingAuthError!`);
         }
       } else if (isTokenRevoke) {
         Logger.info(`🔐 [OAuth类型] Token撤销请求 (iOS应用清理旧token)`);

@@ -316,9 +316,26 @@ class TunnelServer {
           Logger.info(`🔐 [服务器OAuth响应] 响应体长度: ${responseBody.length} bytes`);
           Logger.info(`🔐 [服务器OAuth响应] 响应已成功发送给iOS客户端`);
           
-          // 如果是token撤销请求的响应
-          if (req.url.includes('action=revoke') || (req.method === 'POST' && responseBody.length === 0)) {
+          // 详细验证OAuth响应
+          if (responseBody.length === 0 && status_code === 200) {
             Logger.info(`🔐 [服务器OAuth响应] ✅ Token撤销响应已发送 (空响应为正常)`);
+          } else if (responseBody.length > 0 && status_code === 200) {
+            Logger.info(`🔐 [服务器OAuth响应] ✅ Authorization Code交换响应已发送`);
+            
+            // 验证响应内容
+            const responseText = responseBody.toString();
+            const hasAccessToken = responseText.includes('access_token');
+            const hasRefreshToken = responseText.includes('refresh_token');
+            
+            Logger.info(`🔐 [服务器OAuth验证] access_token: ${hasAccessToken}, refresh_token: ${hasRefreshToken}`);
+            
+            if (!hasAccessToken || !hasRefreshToken) {
+              Logger.error(`🔐 [服务器OAuth错误] ❌ iOS需要的token缺失! 会导致OnboardingAuthError`);
+            } else {
+              Logger.info(`🔐 [服务器OAuth成功] ✅ iOS应用将成功添加服务器!`);
+            }
+          } else {
+            Logger.error(`🔐 [服务器OAuth错误] ❌ 异常响应: 状态${status_code}, 长度${responseBody.length}`);
           }
         }
 

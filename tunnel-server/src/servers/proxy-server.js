@@ -59,10 +59,17 @@ class ProxyServer {
                 const isTokenRefresh = bodyString.includes('grant_type=refresh_token');
                 
                 if (isTokenExchange) {
-                  Logger.info(`🔐 [服务器OAuth类型] Token交换请求 (正常认证)`);
+                  Logger.info(`🔐 [服务器OAuth类型] *** AUTHORIZATION CODE交换请求 (关键!) ***`);
                   const hasGrantType = bodyString.includes('grant_type=');
                   const hasCode = bodyString.includes('code=');
-                  Logger.info(`🔐 [服务器OAuth验证] grant_type: ${hasGrantType}, code: ${hasCode}`);
+                  const hasClientId = bodyString.includes('client_id=');
+                  Logger.info(`🔐 [服务器OAuth验证] grant_type: ${hasGrantType}, code: ${hasCode}, client_id: ${hasClientId}`);
+                  Logger.info(`🔐 [服务器OAuth重要] 这是iOS添加服务器的关键步骤! 必须成功返回access_token和refresh_token`);
+                  
+                  if (!hasClientId || !hasCode) {
+                    Logger.error(`🔐 [服务器OAuth错误] ❌ 缺少关键参数! client_id: ${hasClientId}, code: ${hasCode}`);
+                    Logger.error(`🔐 [服务器OAuth错误] 这会导致iOS OnboardingAuthError!`);
+                  }
                 } else if (isTokenRevoke) {
                   Logger.info(`🔐 [服务器OAuth类型] Token撤销请求 (iOS清理旧token)`);
                   Logger.info(`🔐 [服务器OAuth说明] 这是正常行为，HA会返回空响应`);
@@ -70,6 +77,7 @@ class ProxyServer {
                   Logger.info(`🔐 [服务器OAuth类型] Token刷新请求`);
                 } else {
                   Logger.warn(`🔐 [服务器OAuth类型] 未知类型的OAuth请求`);
+                  Logger.info(`🔐 [服务器OAuth调试] 请求体内容: ${bodyString}`);
                 }
               } else {
                 Logger.error(`🔐 [服务器OAuth错误] ❌ OAuth请求体为空!`);
