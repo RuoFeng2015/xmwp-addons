@@ -328,9 +328,11 @@ class TunnelServer {
             const hasRefreshToken = responseText.includes('refresh_token');
             
             Logger.info(`🔐 [服务器OAuth验证] access_token: ${hasAccessToken}, refresh_token: ${hasRefreshToken}`);
+            Logger.info(`🔐 [服务器OAuth响应内容] ${responseText.length > 500 ? responseText.substring(0, 500) + '...' : responseText}`);
             
             if (!hasAccessToken || !hasRefreshToken) {
               Logger.error(`🔐 [服务器OAuth错误] ❌ iOS需要的token缺失! 会导致OnboardingAuthError`);
+              Logger.error(`🔐 [服务器OAuth调试] 完整响应内容: ${responseText}`);
             } else {
               Logger.info(`🔐 [服务器OAuth成功] ✅ iOS应用将成功添加服务器!`);
             }

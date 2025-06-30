@@ -208,11 +208,12 @@ class HttpProxyHandler {
             const hasTokenType = responseText.includes('token_type');
             
             Logger.info(`🔐 [OAuth Token验证] access_token: ${hasAccessToken}, refresh_token: ${hasRefreshToken}, token_type: ${hasTokenType}`);
+            Logger.info(`🔐 [OAuth Token响应内容] ${responseText.length > 500 ? responseText.substring(0, 500) + '...' : responseText}`);
             
             if (!hasAccessToken || !hasRefreshToken) {
               Logger.error(`🔐 [OAuth Token错误] ❌ iOS需要的token缺失!`);
               Logger.error(`🔐 [OAuth Token错误] 这会导致OnboardingAuthError!`);
-              Logger.error(`🔐 [OAuth Token错误] 响应内容: ${responseText}`);
+              Logger.error(`🔐 [OAuth Token调试] 完整响应: ${responseText}`);
             } else {
               Logger.info(`🔐 [OAuth Token成功] ✅ iOS应用将成功添加服务器!`);
             }

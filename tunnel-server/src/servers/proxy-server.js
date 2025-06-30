@@ -58,6 +58,9 @@ class ProxyServer {
                 const isTokenRevoke = bodyString.includes('action=revoke');
                 const isTokenRefresh = bodyString.includes('grant_type=refresh_token');
                 
+                Logger.info(`🔐 [服务器OAuth分析] 请求体长度: ${ctx.rawBody.length} bytes`);
+                Logger.info(`🔐 [服务器OAuth分析] isTokenExchange: ${isTokenExchange}, isTokenRevoke: ${isTokenRevoke}, isTokenRefresh: ${isTokenRefresh}`);
+                
                 if (isTokenExchange) {
                   Logger.info(`🔐 [服务器OAuth类型] *** AUTHORIZATION CODE交换请求 (关键!) ***`);
                   const hasGrantType = bodyString.includes('grant_type=');
