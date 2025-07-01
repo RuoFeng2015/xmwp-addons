@@ -87,7 +87,7 @@ class HttpProxyHandler {
     for (const hostname of targetHosts) {
       try {
         Logger.info(`🔗 [HTTP代理] 尝试连接: ${hostname}`);
-        const success = await this.attemptHAConnection(message, hostname)
+        const success = await this.attemptHAConnection(message, hostname, isiOSApp)
         if (success) {
           // 使用日志去重机制，避免短时间内重复输出相同主机的连接成功日志
           this.logConnectionSuccess(hostname)
@@ -114,7 +114,7 @@ class HttpProxyHandler {
   /**
    * 尝试HA连接 - 确保100%还原原始HTTP请求
    */
-  attemptHAConnection(message, hostname) {
+  attemptHAConnection(message, hostname, isiOSApp = false) {
     return new Promise((resolve, reject) => {
       const config = getConfig()
       const options = {
@@ -126,6 +126,9 @@ class HttpProxyHandler {
         family: 4,
         timeout: 5000,
       }
+      
+      // 确保 isiOSApp 在所有回调中可用
+      const isIOSRequest = isiOSApp;
 
       // 重要：保持原始Host头，确保虚拟主机正确路由
       if (message.headers.host) {
@@ -394,7 +397,7 @@ class HttpProxyHandler {
           }
           
           // 记录到行为分析器
-          if (isiOSApp) {
+          if (isIOSRequest) {
             this.iosBehaviorAnalyzer.recordAPIRequest(message.method, message.url, proxyRes.statusCode, responseBody.length);
           }
           

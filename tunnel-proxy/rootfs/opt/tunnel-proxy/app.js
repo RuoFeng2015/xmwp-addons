@@ -16,7 +16,7 @@ let proxyServer = null
 class TunnelProxyApp {
   static async start() {
     try {
-      Logger.info('正在启动内网穿透代理服务...')
+      Logger.info('正在启动内网穿透代理服务===========================================================')
 
       // 设置全局错误处理
       ErrorHandler.setupGlobalErrorHandlers()
@@ -26,7 +26,7 @@ class TunnelProxyApp {
       ConfigManager.loadConfig()
       Logger.info('✅ 配置加载完成，开始验证...')
       ConfigManager.validateConfig()
-      
+
       // 验证配置加载是否成功
       const config = ConfigManager.getConfig()
       Logger.info(`🔍 [启动检查] 最终配置验证:`)
@@ -34,7 +34,7 @@ class TunnelProxyApp {
       Logger.info(`   - server_domain: ${config.server_domain}`)
       Logger.info(`   - server_port: ${config.server_port}`)
       Logger.info(`   - client_id: ${config.client_id}`)
-      
+
       if (!config.connection_type || config.connection_type === null) {
         Logger.error('🚨 配置验证失败：connection_type仍然为null')
         process.exit(1)
