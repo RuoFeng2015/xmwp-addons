@@ -238,7 +238,7 @@ class IOSBehaviorAnalyzer {
     setTimeout(() => {
       const requestTimeline = this.sessionData.apiRequests.map(req => ({
         timestamp: new Date(req.timestamp).toISOString(),
-        type: this.categorizeRequest(req.url),
+        type: this.categorizeAPI(req.url),
         url: req.url,
         method: req.method
       }));
