@@ -1,5 +1,6 @@
 const Logger = require('./logger');
 const IOSComprehensiveDiagnostic = require('./ios-comprehensive-diagnostic');
+const IOSDuplicateServerFix = require('./ios-duplicate-server-fix');
 
 /**
  * iOS Home Assistant App 行为分析器
@@ -16,6 +17,7 @@ class IOSBehaviorAnalyzer {
       apiRequests: [],
       issues: []
     };
+    this.duplicateServerFix = new IOSDuplicateServerFix();
   }
 
   /**
@@ -31,8 +33,12 @@ class IOSBehaviorAnalyzer {
    */
   recordOAuthComplete() {
     this.sessionData.oauthCompleteTime = Date.now();
-    const duration = this.sessionData.oauthCompleteTime - this.sessionData.oauthStartTime;
-    Logger.info(`🍎 [行为分析] OAuth流程完成，耗时: ${duration}ms`);
+    if (this.sessionData.oauthStartTime) {
+      const duration = this.sessionData.oauthCompleteTime - this.sessionData.oauthStartTime;
+      Logger.info(`🍎 [行为分析] OAuth流程完成，耗时: ${duration}ms`);
+    } else {
+      Logger.info(`🍎 [行为分析] OAuth流程完成`);
+    }
   }
 
   /**
@@ -130,8 +136,10 @@ class IOSBehaviorAnalyzer {
     }
     if (session.oauthCompleteTime) {
       Logger.info(`📊 [时间线] OAuth完成: ${new Date(session.oauthCompleteTime).toISOString()}`);
-      const oauthDuration = session.oauthCompleteTime - session.oauthStartTime;
-      Logger.info(`📊 [时间线] OAuth耗时: ${oauthDuration}ms`);
+      if (session.oauthStartTime) {
+        const oauthDuration = session.oauthCompleteTime - session.oauthStartTime;
+        Logger.info(`📊 [时间线] OAuth耗时: ${oauthDuration}ms`);
+      }
     }
     if (session.websocketConnectTime) {
       Logger.info(`📊 [时间线] WebSocket连接: ${new Date(session.websocketConnectTime).toISOString()}`);
@@ -234,6 +242,9 @@ class IOSBehaviorAnalyzer {
 
     Logger.info(`💡 [诊断建议] *** 建议结束 ***`);
     
+    // 执行重复服务器检测
+    this.duplicateServerFix.performFullDiagnosis(this.sessionData.apiRequests);
+    
     // 执行综合诊断
     setTimeout(() => {
       const requestTimeline = this.sessionData.apiRequests.map(req => ({
@@ -264,6 +275,7 @@ class IOSBehaviorAnalyzer {
       apiRequests: [],
       issues: []
     };
+    this.duplicateServerFix.reset();
     Logger.info(`🍎 [行为分析] 分析器已重置`);
   }
 }

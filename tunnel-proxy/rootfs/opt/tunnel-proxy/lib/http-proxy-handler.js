@@ -912,11 +912,14 @@ class HttpProxyHandler {
         Logger.info(`🍎 [iOS OAuth] OAuth流程步骤检测`);
         if (message.url.includes('/auth/authorize')) {
           Logger.info(`🍎 [iOS OAuth] → 步骤1: 授权请求`);
-          this.iosBehaviorAnalyzer.recordOAuthStart();
         } else if (message.url.includes('/auth/token')) {
           Logger.info(`🍎 [iOS OAuth] → 步骤2: Token交换/撤销`);
         } else if (message.url.includes('/auth/login_flow')) {
           Logger.info(`🍎 [iOS OAuth] → 步骤0: 登录流程`);
+          // iOS OAuth流程从登录流程开始
+          if (!this.iosBehaviorAnalyzer.sessionData.oauthStartTime) {
+            this.iosBehaviorAnalyzer.recordOAuthStart();
+          }
         }
       }
       
